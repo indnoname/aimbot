@@ -27,4 +27,4 @@ end
 
 print("Key Accepted")
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot?token=GHSAT0AAAAAAD6QYPGMVRZGXHXMCMBO3S2K2QZ62SQ"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"))()
