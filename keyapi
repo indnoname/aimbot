@@ -3,19 +3,30 @@ local ValidKeys = {
     ["ray-lor-maa"] = true,
 }
 
-if not getgenv().Key then
-    game.Players.LocalPlayer:Kick(
-        "No Key Found\n\nExample:\ngetgenv().Key = 'YOUR_KEY'"
-    )
-    return
+local Clipboard = getclipboard()
+
+local Found = false
+
+for Key,_ in pairs(ValidKeys) do
+    if string.find(Clipboard, Key) then
+        Found = true
+        break
+    end
 end
 
-if not ValidKeys[getgenv().Key] then
-    game.Players.LocalPlayer:Kick("Invalid Key")
+if not Found then
+
+    setclipboard("GET YOUR KEY HERE")
+
+    game.Players.LocalPlayer:Kick(
+        "Invalid Key\nKey Link Copied"
+    )
+
     return
 end
 
 print("Key Accepted")
 
--- LOAD HUB
-loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot?token=GHSAT0AAAAAAD6QYPGM3VUNBEA5TXQB65CK2QZ6T6Q"))()
+loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot?token=GHSAT0AAAAAAD6QYPGM3VUNBEA5TXQB65CK2QZ6T6Q"
+))()
