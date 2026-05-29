@@ -1,0 +1,305 @@
+--// SETTINGS
+--// Ctrl+P (open)
+--// Ctrl+T+C (openTC)
+
+getgenv().AimPart = "HumanoidRootPart"
+getgenv().AimRadius = 50
+getgenv().SwitchDistance = 120
+getgenv().PredictMovement = true
+getgenv().PredictionVelocity = 2 
+getgenv().AutoSwitchTarget = true
+getgenv().TeamCheck = false
+-- CTRL + P
+getgenv().AimlockToggleKey = {
+    Enum.KeyCode.LeftControl,
+    Enum.KeyCode.P
+}
+--// SERVICES
+getgenv().Players = game:GetService("Players")
+getgenv().UIS = game:GetService("UserInputService")
+getgenv().RunService = game:GetService("RunService")
+
+getgenv().Camera = workspace.CurrentCamera
+getgenv().LocalPlayer = getgenv().Players.LocalPlayer
+getgenv().Mouse = getgenv().LocalPlayer:GetMouse()
+
+--// STATES
+getgenv().Aimlock = true
+getgenv().Holding = false
+getgenv().AimlockTarget = nil
+
+--// WALL CHECK
+getgenv().WallCheck = function(TargetCharacter)
+    local LocalCharacter =
+        getgenv().LocalPlayer.Character
+    if not LocalCharacter then
+        return false
+    end
+    if not LocalCharacter:FindFirstChild("Head") then
+        return false
+    end
+    if not TargetCharacter then
+        return false
+    end
+    if not TargetCharacter:FindFirstChild(
+        getgenv().AimPart
+    ) then
+        return false
+    end
+    local Origin =
+        LocalCharacter.Head.Position
+    local Destination =
+        TargetCharacter[getgenv().AimPart].Position
+    local Direction =
+        Destination - Origin
+    local Params = RaycastParams.new()
+    Params.FilterType =
+        Enum.RaycastFilterType.Blacklist
+    Params.FilterDescendantsInstances = {
+        LocalCharacter,
+        TargetCharacter
+    }
+    local Result = workspace:Raycast(
+        Origin,
+        Direction,
+        Params
+    )
+    return Result == nil
+end
+
+getgenv().GetNearestTarget = function()
+    local ClosestPlayer = nil
+    local ClosestDistance =
+        getgenv().AimRadius
+    for _, Player in pairs(
+        getgenv().Players:GetPlayers()
+    ) do
+        if Player ~= getgenv().LocalPlayer then
+            local Character =
+                Player.Character
+            if Character
+            and Character:FindFirstChild(
+                getgenv().AimPart
+            ) then
+                local Humanoid =
+                    Character:FindFirstChild(
+                        "Humanoid"
+                    )
+                -- DEAD CHECK
+                if not Humanoid
+                or Humanoid.Health <= 0 then
+                    continue
+                end
+                -- TEAM CHECK
+                if getgenv().TeamCheck then
+                    if Player.Team ~= nil
+                    and getgenv().LocalPlayer.Team ~= nil then
+
+                        if Player.Team
+                        == getgenv().LocalPlayer.Team then
+                            continue
+                        end
+                    end
+                end
+                -- WALL CHECK
+                if not getgenv().WallCheck(
+                    Character
+                ) then
+                    continue
+                end
+                local Part =
+                    Character[getgenv().AimPart]
+
+                -- DISTANCE CHECK
+                if getgenv().LocalPlayer.Character
+                and getgenv().LocalPlayer.Character:FindFirstChild(
+                    "HumanoidRootPart"
+                ) then
+                    local DistanceFromPlayer =
+                        (
+                            getgenv().LocalPlayer.Character.HumanoidRootPart.Position
+                            - Part.Position
+                        ).Magnitude
+                    if DistanceFromPlayer
+                    > getgenv().SwitchDistance then
+                        continue
+                    end
+                end
+                local ScreenPos, Visible =
+                    getgenv().Camera:WorldToViewportPoint(
+                        Part.Position
+                    )
+                if Visible then
+                    local MousePos =
+                        Vector2.new(
+                            getgenv().Mouse.X,
+                            getgenv().Mouse.Y
+                        )
+                    local TargetPos =
+                        Vector2.new(
+                            ScreenPos.X,
+                            ScreenPos.Y
+                        )
+                    local Distance =
+                        (MousePos - TargetPos).Magnitude
+                    if Distance
+                    < ClosestDistance then
+                        ClosestDistance =
+                            Distance
+                        ClosestPlayer =
+                            Player
+                    end
+                end
+            end
+        end
+    end
+    return ClosestPlayer
+end
+getgenv().LocalPlayer.CharacterAdded:Connect(function()
+    getgenv().AimlockTarget = nil
+end)
+--// INPUT BEGIN
+getgenv().UIS.InputBegan:Connect(function(
+    Input,
+    GPE
+)
+    if GPE then
+        return
+    end
+    -- RIGHT CLICK HOLD
+    if Input.UserInputType
+    == Enum.UserInputType.MouseButton2 then
+        getgenv().Holding = true
+        getgenv().AimlockTarget =
+            getgenv().GetNearestTarget()
+    end
+    -- CTRL + P
+    local ToggleKeys =
+        getgenv().AimlockToggleKey
+    if getgenv().UIS:IsKeyDown(
+        ToggleKeys[1]
+    )
+    and Input.KeyCode == ToggleKeys[2] then
+        getgenv().Aimlock =
+            not getgenv().Aimlock
+    end
+    -- CTRL + T + C
+    if getgenv().UIS:IsKeyDown(
+        Enum.KeyCode.LeftControl
+    )
+    and getgenv().UIS:IsKeyDown(
+        Enum.KeyCode.T
+    )
+    and Input.KeyCode
+    == Enum.KeyCode.C then
+
+        getgenv().TeamCheck =
+            not getgenv().TeamCheck
+    end
+end)
+
+getgenv().UIS.InputEnded:Connect(function(
+    Input
+)
+
+    if Input.UserInputType
+    == Enum.UserInputType.MouseButton2 then
+
+        getgenv().Holding = false
+        getgenv().AimlockTarget = nil
+    end
+end)
+getgenv().RunService.RenderStepped:Connect(
+function()
+    if not getgenv().Aimlock then
+        return
+    end
+    if not getgenv().Holding then
+        return
+    end
+    if not getgenv().Camera then
+        return
+    end
+    if getgenv().AutoSwitchTarget then
+        local NewTarget =
+            getgenv().GetNearestTarget()
+        if NewTarget then
+            getgenv().AimlockTarget =
+                NewTarget
+        end
+    end
+        getgenv().AimlockTarget
+    if not Target then
+        return
+    end
+    local Character =
+        Target.Character
+    if not Character then
+        getgenv().AimlockTarget = nil
+        return
+    end
+    local Humanoid =
+        Character:FindFirstChild(
+            "Humanoid"
+        )
+    if not Humanoid
+    or Humanoid.Health <= 0 then
+        getgenv().AimlockTarget = nil
+        return
+    end
+    if not Character:FindFirstChild(
+        getgenv().AimPart
+    ) then
+        getgenv().AimlockTarget = nil
+        return
+    end
+    local AimPart =
+        Character[getgenv().AimPart]
+    -- OFFSCREEN CHECK
+    local ScreenPos, Visible =
+        getgenv().Camera:WorldToViewportPoint(
+            AimPart.Position
+        )
+    if not Visible then
+        getgenv().AimlockTarget = nil
+        return
+    end
+    -- WALL CHECK
+    if not getgenv().WallCheck(
+        Character
+    ) then
+        getgenv().AimlockTarget = nil
+        return
+    end
+if getgenv().LocalPlayer.Character
+and getgenv().LocalPlayer.Character:FindFirstChild(
+    "HumanoidRootPart"
+) then
+
+    local Distance =
+        (
+            getgenv().LocalPlayer.Character.HumanoidRootPart.Position
+            - AimPart.Position
+        ).Magnitude
+
+    if Distance > getgenv().SwitchDistance then
+
+        local NewTarget =
+            getgenv().GetNearestTarget()
+
+        if NewTarget then
+            getgenv().AimlockTarget =
+                NewTarget
+        else
+            getgenv().AimlockTarget = nil
+        end
+
+        return
+    end
+end
+
+getgenv().Camera.CFrame = CFrame.new(
+    getgenv().Camera.CFrame.Position,
+    AimPart.Position
+)
+end)
