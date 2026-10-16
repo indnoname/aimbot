@@ -1,10 +1,10 @@
 
 getgenv().AimPart = "HumanoidRootPart" -- For R15 Games: {UpperTorso, LowerTorso, HumanoidRootPart, Head} | For R6 Games: {Head, Torso, HumanoidRootPart}
-getgenv().AimlockToggleKey = "Y" -- Toggles Aimbot On/Off 
+getgenv().AimlockToggleKey = "P" -- Toggles Aimbot On/Off 
 getgenv().AimRadius = 50 -- How far away from someones character you want to lock on at
 getgenv().TeamCheck = false -- Check if Target is on your Team (True means it wont lock onto your teamates, false is vice versa) (Set it to false if there are no teams)
 getgenv().PredictMovement = true -- Predicts if they are moving in fast velocity (like jumping) so the aimbot will go a bit faster to match their speed 
-getgenv().PredictionVelocity = 10 -- The speed of the PredictMovement feature 
+getgenv().PredictionVelocity = 0 -- The speed of the PredictMovement feature 
 
 getgenv().FuckHoodUniversalAimbotLoadingTime = tick()
 if FuckHoodUniversalAimbotLoaded == true then
