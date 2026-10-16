@@ -1,10 +1,6 @@
---// SETTINGS
---// Ctrl+P (open)
---// Ctrl+T+C (openTC)
-
 getgenv().AimPart = "HumanoidRootPart"
-getgenv().AimRadius = 50
-getgenv().SwitchDistance = 120
+getgenv().AimRadius = 35
+getgenv().SwitchDistance = 150
 getgenv().PredictMovement = true
 getgenv().PredictionVelocity = 2 
 getgenv().AutoSwitchTarget = true
@@ -210,7 +206,7 @@ getgenv().UIS.InputEnded:Connect(function(
     end
 end)
 getgenv().RunService.RenderStepped:Connect(
-function()
+local function()
     if not getgenv().Aimlock then
         return
     end
