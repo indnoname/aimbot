@@ -1,1 +1,190 @@
+local VALID_KEY = "PVkeyVLN-2957140-RTCLI-Client"
+local SAVE_FILE = "PVclient.txt"
 
+--==================================================
+-- EXECUTOR FILE CHECK
+--==================================================
+
+local function HasSavedKey()
+    if type(isfile) ~= "function"
+        or type(readfile) ~= "function" then
+        return false
+    end
+
+    local success, result = pcall(function()
+        return isfile(SAVE_FILE)
+            and readfile(SAVE_FILE) == VALID_KEY
+    end)
+
+    return success and result == true
+end
+
+local function SaveKey()
+    if type(writefile) ~= "function" then
+        return false
+    end
+
+    local success = pcall(function()
+        writefile(SAVE_FILE, VALID_KEY)
+    end)
+
+    return success
+end
+
+--==================================================
+-- RUN MAIN SCRIPT
+--==================================================
+
+local function RunMainScript()
+    local URL = "https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"
+    local success, result = pcall(function()
+        return game:HttpGet(URL)
+    end)
+
+    if not success then
+        warn("โหลดโค้ดไม่สำเร็จ:", result)
+        return
+    end
+    if type(result) ~= "string" or result == "" then
+        warn("ไม่พบโค้ดที่ URL")
+        return
+    end
+
+    warn("ดาวน์โหลดโค้ดสำเร็จ แต่ยังไม่ได้รัน")
+end
+
+if HasSavedKey() then
+    RunMainScript()
+    return
+end
+
+--==================================================
+-- KEY GUI
+--==================================================
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PVClientKeyGUI"
+ScreenGui.ResetOnSpawn = false
+
+local ParentSuccess = pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+
+if not ParentSuccess then
+    ScreenGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local Frame = Instance.new("Frame")
+Frame.Name = "Main"
+Frame.Size = UDim2.fromOffset(360, 205)
+Frame.Position = UDim2.fromScale(0.5, 0.5)
+Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+Frame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+Frame.BorderSizePixel = 0
+Frame.Parent = ScreenGui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 12)
+Corner.Parent = Frame
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(220, 45, 55)
+Stroke.Thickness = 1.5
+Stroke.Parent = Frame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -24, 0, 42)
+Title.Position = UDim2.fromOffset(12, 8)
+Title.BackgroundTransparency = 1
+Title.Text = "PV CLIENT  |  KEY SYSTEM"
+Title.TextColor3 = Color3.fromRGB(255, 65, 75)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 17
+Title.Parent = Frame
+
+local Box = Instance.new("TextBox")
+Box.Size = UDim2.new(1, -36, 0, 42)
+Box.Position = UDim2.fromOffset(18, 62)
+Box.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+Box.TextColor3 = Color3.fromRGB(255, 255, 255)
+Box.PlaceholderText = "Enter your key..."
+Box.PlaceholderColor3 = Color3.fromRGB(145, 145, 155)
+Box.Font = Enum.Font.Gotham
+Box.TextSize = 13
+Box.ClearTextOnFocus = false
+Box.Text = ""
+Box.Parent = Frame
+
+local BoxCorner = Instance.new("UICorner")
+BoxCorner.CornerRadius = UDim.new(0, 7)
+BoxCorner.Parent = Box
+
+local Verify = Instance.new("TextButton")
+Verify.Size = UDim2.new(1, -36, 0, 38)
+Verify.Position = UDim2.fromOffset(18, 115)
+Verify.BackgroundColor3 = Color3.fromRGB(200, 35, 48)
+Verify.Text = "VERIFY KEY"
+Verify.TextColor3 = Color3.new(1, 1, 1)
+Verify.Font = Enum.Font.GothamBold
+Verify.TextSize = 14
+Verify.Parent = Frame
+
+local VerifyCorner = Instance.new("UICorner")
+VerifyCorner.CornerRadius = UDim.new(0, 7)
+VerifyCorner.Parent = Verify
+
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, -24, 0, 28)
+Status.Position = UDim2.fromOffset(12, 160)
+Status.BackgroundTransparency = 1
+Status.Text = "Enter your key to continue"
+Status.TextColor3 = Color3.fromRGB(175, 175, 185)
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 11
+Status.Parent = Frame
+
+local Busy = false
+
+local function VerifyKey()
+    if Busy then
+        return
+    end
+
+    if Box.Text ~= VALID_KEY then
+        Status.Text = "Invalid key!"
+        Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+        return
+    end
+
+    Busy = true
+    Verify.Text = "VERIFYING..."
+    Status.Text = "Saving key..."
+    Status.TextColor3 = Color3.fromRGB(255, 200, 90)
+
+    if not SaveKey() then
+        Busy = false
+        Verify.Text = "VERIFY KEY"
+        Status.Text = "Cannot save key on this executor"
+        Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+        return
+    end
+
+    Status.Text = "Key accepted!"
+    Status.TextColor3 = Color3.fromRGB(90, 230, 130)
+
+    task.wait(0.35)
+    ScreenGui:Destroy()
+
+    RunMainScript()
+end
+
+Verify.MouseButton1Click:Connect(VerifyKey)
+
+Box.FocusLost:Connect(function(EnterPressed)
+    if EnterPressed then
+        VerifyKey()
+    end
+end)
