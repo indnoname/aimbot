@@ -1,154 +1,415 @@
 
-local VALID_KEY = "PVkeyVLN-2957140-RTCLI-Client"
-local SAVE_FILE = "client.txt"
+--==================================================
+-- PV CLIENT | KEY GUI + LOCAL STORAGE
+-- Fixed Version
+--==================================================
 
-local Players = game:GetService("Players")  
+local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local VerifyKey = nil
-local function HasSavedKey()
-    if type(isfile) ~= "function"
-        or type(readfile) ~= "function" then
-        return false
-    end
+local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
-    local ok, result = pcall(function()
-        return isfile(SAVE_FILE)
-            and readfile(SAVE_FILE) == VALID_KEY
-    end)
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-    return ok and result == true
-end
+--==================================================
+-- SETTINGS
+--==================================================
 
-local function SaveKey()
-    if type(writefile) ~= "function" then
+local HUB_NAME = "VL Hub"
+local VALID_KEY = "PVkeyVLN-2957140-RTCLI-Client"
+
+local ROOT = "PVClient"
+local LOGS = ROOT .. "/logs"
+local SESSIONS = ROOT .. "/sessions"
+
+local KEY_FILE = ROOT .. "/key.txt"
+local MEMORY_FILE = ROOT .. "/memory.json"
+local SESSION_FILE = SESSIONS .. "/latest.json"
+local LOG_FILE = LOGS .. "/usage.log"
+
+local Busy = false
+local Started = false
+local ScreenGui
+
+--==================================================
+-- FILE SYSTEM
+-- Requires executor-specific file APIs.
+-- These APIs do not normally exist in Roblox Studio.
+--==================================================
+
+local function EnsureFolder(path)
+    if type(makefolder) ~= "function"
+        or type(isfolder) ~= "function" then
         return false
     end
 
     local ok = pcall(function()
-        writefile(SAVE_FILE, VALID_KEY)
+        if not isfolder(path) then
+            makefolder(path)
+        end
     end)
 
     return ok
 end
 
+local function ReadFile(path)
+    if type(isfile) ~= "function"
+        or type(readfile) ~= "function" then
+        return nil
+    end
+
+    local ok, result = pcall(function()
+        if isfile(path) then
+            return readfile(path)
+        end
+        return nil
+    end)
+
+    if ok then
+        return result
+    end
+
+    return nil
+end
+
+local function WriteFile(path, content)
+    if type(writefile) ~= "function" then
+        return false
+    end
+
+    local ok = pcall(function()
+        writefile(path, content)
+    end)
+
+    return ok
+end
+
+local function InitStorage()
+    return EnsureFolder(ROOT)
+        and EnsureFolder(LOGS)
+        and EnsureFolder(SESSIONS)
+end
+
+--==================================================
+-- KEY STORAGE
+--==================================================
+
+local function HasSavedKey()
+    local savedKey = ReadFile(KEY_FILE)
+    return savedKey == VALID_KEY
+end
+
+local function SaveKey()
+    return WriteFile(KEY_FILE, VALID_KEY)
+end
+
+--==================================================
+-- LOGGING
+--==================================================
+
+local function Log(message)
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local previous = ReadFile(LOG_FILE) or ""
+
+    local line = string.format(
+        "[%s] %s\n",
+        timestamp,
+        tostring(message)
+    )
+
+    if not WriteFile(LOG_FILE, previous .. line) then
+        warn("[PVClient] " .. tostring(message))
+    end
+end
+
+--==================================================
+-- JSON STORAGE
+--==================================================
+
+local function SaveJSON(path, data)
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+
+    if not ok then
+        return false
+    end
+
+    return WriteFile(path, encoded)
+end
+
+local function LoadJSON(path)
+    local raw = ReadFile(path)
+
+    if not raw then
+        return nil
+    end
+
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(raw)
+    end)
+
+    if ok and type(data) == "table" then
+        return data
+    end
+
+    return nil
+end
+
+--==================================================
+-- SESSION / MEMORY
+--==================================================
+
+local function SaveSession()
+    return SaveJSON(SESSION_FILE, {
+        username = LocalPlayer.Name,
+        userId = LocalPlayer.UserId,
+        placeId = game.PlaceId,
+        jobId = game.JobId,
+        savedAt = os.time()
+    })
+end
+
+local function SaveMemory()
+    local memory = LoadJSON(MEMORY_FILE) or {}
+
+    memory.lastUsername = LocalPlayer.Name
+    memory.lastUserId = LocalPlayer.UserId
+    memory.lastPlaceId = game.PlaceId
+    memory.lastSeen = os.time()
+
+    return SaveJSON(MEMORY_FILE, memory)
+end
+
+--==================================================
+-- GAME INFORMATION
+--==================================================
+
+local function PrintVLHubInfo()
+    local gameName = "Unknown Map"
+
+    local ok, result = pcall(function()
+        return MarketplaceService:GetProductInfo(game.PlaceId)
+    end)
+
+    if ok and result then
+        gameName = result.Name or gameName
+    end
+
+    local character = LocalPlayer.Character
+    local characterName = character and character.Name
+        or LocalPlayer.Name
+
+    print("========================================")
+    print("          " .. HUB_NAME)
+    print("========================================")
+    print("Map Name       : " .. gameName)
+    print("Place ID       : " .. tostring(game.PlaceId))
+    print("Job ID         : " .. tostring(game.JobId))
+    print("Player Name    : " .. LocalPlayer.Name)
+    print("Display Name   : " .. LocalPlayer.DisplayName)
+    print("User ID        : " .. tostring(LocalPlayer.UserId))
+    print("Character Name : " .. characterName)
+    print("Time           : " .. os.date("%Y-%m-%d %H:%M:%S"))
+    print("========================================")
+end
+
+--==================================================
+-- MAIN FEATURE
+-- Add your own authorized game functionality here.
+--==================================================
+
 local function RunMainScript()
-   loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"))() 
-   return
-end
-
-if HasSavedKey() then
-    return
-end
-
--- GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PVClientKeyGUI"
-ScreenGui.ResetOnSpawn = false
-
-local ok = pcall(function()
-    ScreenGui.Parent = CoreGui
-end)
-
-if not ok then
-    ScreenGui.Parent =
-        Players.LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.fromOffset(350, 190)
-Frame.Position = UDim2.fromScale(0.5, 0.5)
-Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
-Frame.BorderSizePixel = 0
-Frame.Parent = ScreenGui
-
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0, 12)
-Corner.Parent = Frame
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -20, 0, 40)
-Title.Position = UDim2.fromOffset(10, 8)
-Title.BackgroundTransparency = 1
-Title.Text = "PV CLIENT | KEY SYSTEM"
-Title.TextColor3 = Color3.fromRGB(255, 65, 75)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.Parent = Frame
-
-local Box = Instance.new("TextBox")
-Box.Size = UDim2.new(1, -30, 0, 40)
-Box.Position = UDim2.fromOffset(15, 58)
-Box.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-Box.TextColor3 = Color3.new(1, 1, 1)
-Box.PlaceholderText = "Enter your key"
-Box.Text = ""
-Box.ClearTextOnFocus = false
-Box.Font = Enum.Font.Gotham
-Box.TextSize = 13
-Box.Parent = Frame
-
-local BoxCorner = Instance.new("UICorner")
-BoxCorner.CornerRadius = UDim.new(0, 7)
-BoxCorner.Parent = Box
-
-local Verify = Instance.new("TextButton")
-Verify.Size = UDim2.new(1, -30, 0, 35)
-Verify.Position = UDim2.fromOffset(15, 108)
-Verify.BackgroundColor3 = Color3.fromRGB(195, 35, 48)
-Verify.TextColor3 = Color3.new(1, 1, 1)
-Verify.Text = "VERIFY KEY"
-Verify.Font = Enum.Font.GothamBold
-Verify.TextSize = 13
-Verify.Parent = Frame
-
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 7)
-ButtonCorner.Parent = Verify
-
-local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, -20, 0, 25)
-Status.Position = UDim2.fromOffset(10, 150)
-Status.BackgroundTransparency = 1
-Status.Text = "Enter your key to continue"
-Status.TextColor3 = Color3.fromRGB(180, 180, 190)
-Status.Font = Enum.Font.Gotham
-Status.TextSize = 11
-Status.Parent = Frame
-
-local Busy = false
-local function VerifyKey()
-    if Busy then 
-        local Verifykey = false 
-        return
-    end
-    if Box.Text ~= VALID_KEY then
-        Status.Text = "Invalid key!"
-        Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+    if Started then
         return
     end
 
-    Busy = true
+    Started = true
 
-    if not SaveKey() then
+    print("[PVClient] Key verified.")
+    print("[PVClient] Main feature started.")
+
+    PrintVLHubInfo()
+
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"))() 
+end
+
+--==================================================
+-- GUI HELPERS
+--==================================================
+
+local function AddCorner(target, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius)
+    corner.Parent = target
+end
+
+local function ShowKeyGUI()
+    if ScreenGui and ScreenGui.Parent then
+        return
+    end
+
+    ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "PVClientKeyGUI"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.DisplayOrder = 999
+
+    local parentOK = pcall(function()
+        ScreenGui.Parent = CoreGui
+    end)
+
+    if not parentOK then
+        ScreenGui.Parent = PlayerGui
+    end
+
+    local Frame = Instance.new("Frame")
+    Frame.Name = "MainFrame"
+    Frame.Size = UDim2.fromOffset(350, 190)
+    Frame.Position = UDim2.fromScale(0.5, 0.5)
+    Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+
+    AddCorner(Frame, 12)
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -20, 0, 40)
+    Title.Position = UDim2.fromOffset(10, 8)
+    Title.BackgroundTransparency = 1
+    Title.Text = "PV CLIENT | KEY SYSTEM"
+    Title.TextColor3 = Color3.fromRGB(255, 65, 75)
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 16
+    Title.Parent = Frame
+
+    local Box = Instance.new("TextBox")
+    Box.Name = "KeyBox"
+    Box.Size = UDim2.new(1, -30, 0, 40)
+    Box.Position = UDim2.fromOffset(15, 58)
+    Box.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+    Box.TextColor3 = Color3.new(1, 1, 1)
+    Box.PlaceholderText = "Enter your key"
+    Box.PlaceholderColor3 = Color3.fromRGB(140, 140, 150)
+    Box.Text = ""
+    Box.ClearTextOnFocus = false
+    Box.Font = Enum.Font.Gotham
+    Box.TextSize = 13
+    Box.Parent = Frame
+
+    AddCorner(Box, 7)
+
+    local Verify = Instance.new("TextButton")
+    Verify.Name = "VerifyButton"
+    Verify.Size = UDim2.new(1, -30, 0, 35)
+    Verify.Position = UDim2.fromOffset(15, 108)
+    Verify.BackgroundColor3 = Color3.fromRGB(195, 35, 48)
+    Verify.TextColor3 = Color3.new(1, 1, 1)
+    Verify.Text = "VERIFY KEY"
+    Verify.Font = Enum.Font.GothamBold
+    Verify.TextSize = 13
+    Verify.Parent = Frame
+
+    AddCorner(Verify, 7)
+
+    local Status = Instance.new("TextLabel")
+    Status.Name = "Status"
+    Status.Size = UDim2.new(1, -20, 0, 25)
+    Status.Position = UDim2.fromOffset(10, 150)
+    Status.BackgroundTransparency = 1
+    Status.Text = "Enter your key to continue"
+    Status.TextColor3 = Color3.fromRGB(180, 180, 190)
+    Status.Font = Enum.Font.Gotham
+    Status.TextSize = 11
+    Status.Parent = Frame
+
+    --==================================================
+    -- VERIFY KEY
+    --==================================================
+
+    local function VerifyKey()
+        if Busy or Started then
+            return
+        end
+
+        if Box.Text ~= VALID_KEY then
+            Status.Text = "Invalid key!"
+            Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+            Log("Key verification failed")
+            return
+        end
+
+        Busy = true
+        Verify.Text = "VERIFYING..."
+        Verify.Active = false
+
+        if not SaveKey() then
+            Busy = false
+            Verify.Active = true
+            Verify.Text = "VERIFY KEY"
+
+            Status.Text = "Unable to save key"
+            Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+
+            Log("Key save failed")
+            return
+        end
+
+        Status.Text = "Key accepted!"
+        Status.TextColor3 = Color3.fromRGB(90, 230, 130)
+
+        Log("Key verification succeeded")
+        SaveSession()
+        SaveMemory()
+
+        task.wait(0.3)
+
+        if ScreenGui then
+            ScreenGui:Destroy()
+            ScreenGui = nil
+        end
+
         Busy = false
-        Status.Text = "Unable to save key"
-        Status.TextColor3 = Color3.fromRGB(255, 75, 75)
+        RunMainScript()
+    end
+
+    Verify.Activated:Connect(VerifyKey)
+
+    Box.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            VerifyKey()
+        end
+    end)
+end
+
+--==================================================
+-- STARTUP
+--==================================================
+
+local function StartWithKey()
+    if not InitStorage() then
+        warn(
+            "[PVClient] File APIs unavailable. " ..
+            "This version requires an environment that " ..
+            "supports makefolder/isfolder/readfile/writefile."
+        )
         return
     end
 
-    Status.Text = "Key accepted!"
-    Status.TextColor3 = Color3.fromRGB(90, 230, 130)
+    SaveSession()
+    SaveMemory()
+    Log("Client initialized")
 
-    task.wait(0.3)
-    ScreenGui:Destroy()
-    RunMainScript()
+    if HasSavedKey() then
+        Log("Previously saved key found")
+        SaveSession()
+        SaveMemory()
+        RunMainScript()
+        return
+    end
+
+    ShowKeyGUI()
 end
 
-Verify.Activated:Connect(VerifyKey)
-
-Box.FocusLost:Connect(function(enterPressed)
-    if enterPressed then
-        VerifyKey()
-    end
-end)
+StartWithKey()
