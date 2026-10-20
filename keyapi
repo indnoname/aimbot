@@ -1,415 +1,1056 @@
 
---==================================================
--- PV CLIENT | KEY GUI + LOCAL STORAGE
--- Fixed Version
---==================================================
 
+--// SERVICES
 local Players = game:GetService("Players")
-local CoreGui = game:GetService("CoreGui")
-local HttpService = game:GetService("HttpService")
-local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
---==================================================
--- SETTINGS
---==================================================
+--==============================================================
+-- [1] CONFIG
+--==============================================================
 
-local HUB_NAME = "VL Hub"
-local VALID_KEY = "PVkeyVLN-2957140-RTCLI-Client"
+local Config = {
+    HubName = "PV CLIENT",
+    Version = "V2.0.0",
+    Developer = "PV DEVELOPER",
+    Subtitle = "ADVANCED ACCESS TERMINAL",
 
-local ROOT = "PVClient"
-local LOGS = ROOT .. "/logs"
-local SESSIONS = ROOT .. "/sessions"
+    LogoText = "PV",
+    LogoImage = "", -- ตัวอย่าง "rbxassetid://123456789"
 
-local KEY_FILE = ROOT .. "/key.txt"
-local MEMORY_FILE = ROOT .. "/memory.json"
-local SESSION_FILE = SESSIONS .. "/latest.json"
-local LOG_FILE = LOGS .. "/usage.log"
+    TestKeys = {
+        "valiant.api-key",
+    },
 
-local Busy = false
-local Started = false
-local ScreenGui
+    Animation = {
+        OpenTime = 0.55,
+        CloseTime = 0.30,
+        HoverTime = 0.16,
+        EnableBlur = true,
+        BlurSize = 14,
+        EnableScanLine = true,
+    },
 
---==================================================
--- FILE SYSTEM
--- Requires executor-specific file APIs.
--- These APIs do not normally exist in Roblox Studio.
---==================================================
+    GUI = {
+        Width = 470,
+        Height = 620,
+        MinWidth = 310,
+        MinHeight = 430,
+        CloseWithEscape = true,
+    },
 
-local function EnsureFolder(path)
-    if type(makefolder) ~= "function"
-        or type(isfolder) ~= "function" then
-        return false
+    Theme = {
+        Background = Color3.fromRGB(10, 10, 15),
+        Panel = Color3.fromRGB(17, 17, 25),
+        PanelHover = Color3.fromRGB(26, 24, 34),
+        Input = Color3.fromRGB(22, 22, 31),
+
+        Primary = Color3.fromRGB(255, 48, 75),
+        Secondary = Color3.fromRGB(170, 25, 53),
+        Glow = Color3.fromRGB(255, 35, 80),
+
+        Text = Color3.fromRGB(248, 248, 252),
+        Muted = Color3.fromRGB(142, 143, 160),
+        Border = Color3.fromRGB(59, 43, 58),
+
+        Success = Color3.fromRGB(80, 235, 155),
+        Error = Color3.fromRGB(255, 78, 95),
+    },
+
+    Socials = {
+        { Name = "DISCORD",  Link = "https://discord.gg/YOUR_INVITE", Enabled = true },
+        { Name = "INSTAGRAM", Link = "https://instagram.com/YOUR_USERNAME", Enabled = true },
+        { Name = "YOUTUBE", Link = "https://youtube.com/@YOUR_CHANNEL", Enabled = true },
+        { Name = "TIKTOK", Link = "https://www.tiktok.com/@YOUR_USERNAME", Enabled = true },
+        { Name = "WEBSITE", Link = "https://example.com", Enabled = false },
+    },
+}
+
+local T = Config.Theme
+local Anim = Config.Animation
+
+--==============================================================
+-- [2] CLEANUP
+--==============================================================
+
+local Existing = PlayerGui:FindFirstChild("PVKeySystem")
+if Existing then
+    Existing:Destroy()
+end
+
+local ExistingBlur = Lighting:FindFirstChild("PVKeyBlur")
+if ExistingBlur then
+    ExistingBlur:Destroy()
+end
+
+--==============================================================
+-- [3] HELPERS
+--==============================================================
+
+local function Create(className, props, parent)
+    local object = Instance.new(className)
+
+    for key, value in pairs(props or {}) do
+        object[key] = value
     end
 
-    local ok = pcall(function()
-        if not isfolder(path) then
-            makefolder(path)
-        end
-    end)
-
-    return ok
+    object.Parent = parent
+    return object
 end
 
-local function ReadFile(path)
-    if type(isfile) ~= "function"
-        or type(readfile) ~= "function" then
-        return nil
-    end
-
-    local ok, result = pcall(function()
-        if isfile(path) then
-            return readfile(path)
-        end
-        return nil
-    end)
-
-    if ok then
-        return result
-    end
-
-    return nil
+local function Corner(parent, radius)
+    return Create("UICorner", {
+        CornerRadius = UDim.new(0, radius),
+    }, parent)
 end
 
-local function WriteFile(path, content)
-    if type(writefile) ~= "function" then
-        return false
-    end
-
-    local ok = pcall(function()
-        writefile(path, content)
-    end)
-
-    return ok
+local function Stroke(parent, color, thickness, transparency)
+    return Create("UIStroke", {
+        Color = color or T.Border,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
+    }, parent)
 end
 
-local function InitStorage()
-    return EnsureFolder(ROOT)
-        and EnsureFolder(LOGS)
-        and EnsureFolder(SESSIONS)
+local function Gradient(parent, color1, color2, rotation)
+    return Create("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, color1),
+            ColorSequenceKeypoint.new(1, color2),
+        }),
+        Rotation = rotation or 0,
+    }, parent)
 end
 
---==================================================
--- KEY STORAGE
---==================================================
-
-local function HasSavedKey()
-    local savedKey = ReadFile(KEY_FILE)
-    return savedKey == VALID_KEY
-end
-
-local function SaveKey()
-    return WriteFile(KEY_FILE, VALID_KEY)
-end
-
---==================================================
--- LOGGING
---==================================================
-
-local function Log(message)
-    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
-    local previous = ReadFile(LOG_FILE) or ""
-
-    local line = string.format(
-        "[%s] %s\n",
-        timestamp,
-        tostring(message)
+local function Tween(object, duration, properties, style, direction)
+    local tween = TweenService:Create(
+        object,
+        TweenInfo.new(
+            duration,
+            style or Enum.EasingStyle.Quint,
+            direction or Enum.EasingDirection.Out
+        ),
+        properties
     )
 
-    if not WriteFile(LOG_FILE, previous .. line) then
-        warn("[PVClient] " .. tostring(message))
-    end
+    tween:Play()
+    return tween
 end
 
---==================================================
--- JSON STORAGE
---==================================================
+local function Label(parent, text, size, position, fontSize, color, font)
+    return Create("TextLabel", {
+        BackgroundTransparency = 1,
+        Text = text,
+        Size = size,
+        Position = position,
+        Font = font or Enum.Font.GothamMedium,
+        TextSize = fontSize or 13,
+        TextColor3 = color or T.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, parent)
+end
 
-local function SaveJSON(path, data)
-    local ok, encoded = pcall(function()
-        return HttpService:JSONEncode(data)
+local function Button(parent, text, size, position, background)
+    local button = Create("TextButton", {
+        Size = size,
+        Position = position,
+        BackgroundColor3 = background or T.Panel,
+        Text = text,
+        TextColor3 = T.Text,
+        TextSize = 12,
+        Font = Enum.Font.GothamBold,
+        AutoButtonColor = false,
+        BorderSizePixel = 0,
+    }, parent)
+
+    Corner(button, 9)
+    return button
+end
+
+local function AddHover(button, normalColor, hoverColor)
+    button.MouseEnter:Connect(function()
+        Tween(button, Anim.HoverTime, {
+            BackgroundColor3 = hoverColor,
+        })
     end)
 
-    if not ok then
-        return false
-    end
-
-    return WriteFile(path, encoded)
+    button.MouseLeave:Connect(function()
+        Tween(button, Anim.HoverTime, {
+            BackgroundColor3 = normalColor,
+        })
+    end)
 end
 
-local function LoadJSON(path)
-    local raw = ReadFile(path)
+local function PressAnimation(button)
+    local originalSize = button.Size
 
-    if not raw then
-        return nil
-    end
-
-    local ok, data = pcall(function()
-        return HttpService:JSONDecode(raw)
+    button.MouseButton1Down:Connect(function()
+        Tween(button, 0.08, {
+            Size = UDim2.new(
+                originalSize.X.Scale,
+                originalSize.X.Offset - 3,
+                originalSize.Y.Scale,
+                originalSize.Y.Offset - 2
+            ),
+        }, Enum.EasingStyle.Quad)
     end)
 
-    if ok and type(data) == "table" then
-        return data
-    end
-
-    return nil
+    button.MouseButton1Up:Connect(function()
+        Tween(button, 0.12, {
+            Size = originalSize,
+        }, Enum.EasingStyle.Back)
+    end)
 end
 
---==================================================
--- SESSION / MEMORY
---==================================================
+--==============================================================
+-- [4] SCREEN GUI
+--==============================================================
 
-local function SaveSession()
-    return SaveJSON(SESSION_FILE, {
-        username = LocalPlayer.Name,
-        userId = LocalPlayer.UserId,
-        placeId = game.PlaceId,
-        jobId = game.JobId,
-        savedAt = os.time()
+local ScreenGui = Create("ScreenGui", {
+    Name = "PVKeySystem",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 100,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, PlayerGui)
+
+local BlurEffect
+
+if Anim.EnableBlur then
+    BlurEffect = Create("BlurEffect", {
+        Name = "PVKeyBlur",
+        Size = 0,
+    }, Lighting)
+end
+
+local Overlay = Create("Frame", {
+    Name = "Overlay",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = Color3.new(0, 0, 0),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+}, ScreenGui)
+
+-- Responsive initial size
+local camera = workspace.CurrentCamera
+local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+
+local width = math.min(Config.GUI.Width, viewport.X - 28)
+local height = math.min(Config.GUI.Height, viewport.Y - 28)
+
+width = math.max(math.min(width, Config.GUI.Width), math.min(Config.GUI.MinWidth, viewport.X - 16))
+height = math.max(math.min(height, Config.GUI.Height), math.min(Config.GUI.MinHeight, viewport.Y - 16))
+
+local Main = Create("Frame", {
+    Name = "Main",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(width * 0.88, height * 0.88),
+    BackgroundColor3 = T.Background,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+}, Overlay)
+
+Corner(Main, 18)
+
+local MainStroke = Stroke(Main, T.Primary, 1.2, 1)
+
+local Scale = Create("UIScale", {
+    Scale = 0.86,
+}, Main)
+
+-- Subtle gradient background
+Gradient(Main, T.Background, Color3.fromRGB(19, 10, 19), 35)
+
+--==============================================================
+-- [5] DECORATIVE BACKGROUND
+--==============================================================
+
+local Grid = Create("Frame", {
+    Name = "Grid",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ZIndex = 1,
+}, Main)
+
+-- Thin vertical lines
+for i = 1, 12 do
+    Create("Frame", {
+        Name = "GridV",
+        Position = UDim2.new(i / 12, 0, 0, 0),
+        Size = UDim2.new(0, 1, 1, 0),
+        BackgroundColor3 = T.Primary,
+        BackgroundTransparency = 0.965,
+        BorderSizePixel = 0,
+    }, Grid)
+end
+
+-- Thin horizontal lines
+for i = 1, 14 do
+    Create("Frame", {
+        Name = "GridH",
+        Position = UDim2.new(0, 0, i / 14, 0),
+        Size = UDim2.new(1, 0, 0, 1),
+        BackgroundColor3 = T.Primary,
+        BackgroundTransparency = 0.97,
+        BorderSizePixel = 0,
+    }, Grid)
+end
+
+-- Top accent strip
+local TopLine = Create("Frame", {
+    Name = "TopLine",
+    Size = UDim2.new(1, 0, 0, 3),
+    BackgroundColor3 = T.Primary,
+    BorderSizePixel = 0,
+    ZIndex = 3,
+}, Main)
+
+Gradient(TopLine, T.Secondary, T.Primary, 0)
+
+-- Glowing accent strip
+local GlowLine = Create("Frame", {
+    Name = "GlowLine",
+    Position = UDim2.new(0, 0, 0, 3),
+    Size = UDim2.new(0.35, 0, 0, 2),
+    BackgroundColor3 = T.Glow,
+    BackgroundTransparency = 0.1,
+    BorderSizePixel = 0,
+    ZIndex = 4,
+}, Main)
+
+-- Corner decoration
+local CornerDecor = Create("Frame", {
+    Position = UDim2.new(1, -62, 1, -48),
+    Size = UDim2.fromOffset(95, 95),
+    BackgroundColor3 = T.Primary,
+    BackgroundTransparency = 0.92,
+    BorderSizePixel = 0,
+    Rotation = 45,
+    ZIndex = 1,
+}, Main)
+
+Corner(CornerDecor, 18)
+
+--==============================================================
+-- [6] HEADER
+--==============================================================
+
+local Header = Create("Frame", {
+    Name = "Header",
+    Position = UDim2.fromOffset(20, 17),
+    Size = UDim2.new(1, -40, 0, 67),
+    BackgroundTransparency = 1,
+    ZIndex = 5,
+}, Main)
+
+local Logo = Create("Frame", {
+    Size = UDim2.fromOffset(56, 56),
+    Position = UDim2.fromOffset(0, 2),
+    BackgroundColor3 = T.Panel,
+    BorderSizePixel = 0,
+}, Header)
+
+Corner(Logo, 14)
+local LogoStroke = Stroke(Logo, T.Primary, 1.3, 0.15)
+Gradient(Logo, Color3.fromRGB(38, 17, 27), T.Panel, 45)
+
+if Config.LogoImage ~= "" then
+    Create("ImageLabel", {
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -8, 1, -8),
+        Position = UDim2.fromOffset(4, 4),
+        Image = Config.LogoImage,
+        ScaleType = Enum.ScaleType.Fit,
+    }, Logo)
+else
+    Create("TextLabel", {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 1),
+        Text = Config.LogoText,
+        TextColor3 = T.Primary,
+        TextSize = 23,
+        Font = Enum.Font.GothamBlack,
+    }, Logo)
+end
+
+Label(
+    Header,
+    Config.HubName,
+    UDim2.new(1, -145, 0, 28),
+    UDim2.fromOffset(69, 2),
+    18,
+    T.Text,
+    Enum.Font.GothamBlack
+)
+
+Label(
+    Header,
+    Config.Subtitle,
+    UDim2.new(1, -145, 0, 18),
+    UDim2.fromOffset(70, 30),
+    9,
+    T.Muted,
+    Enum.Font.GothamMedium
+)
+
+local VersionTag = Create("TextLabel", {
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -2, 0, 38),
+    Size = UDim2.fromOffset(76, 19),
+    BackgroundColor3 = Color3.fromRGB(49, 19, 30),
+    Text = Config.Version,
+    TextColor3 = T.Primary,
+    TextSize = 9,
+    Font = Enum.Font.GothamBold,
+    BorderSizePixel = 0,
+}, Header)
+
+Corner(VersionTag, 6)
+
+local CloseButton = Button(
+    Header,
+    "×",
+    UDim2.fromOffset(29, 29),
+    UDim2.new(1, -29, 0, 0),
+    T.Panel
+)
+
+CloseButton.TextSize = 22
+CloseButton.TextColor3 = T.Muted
+CloseButton.ZIndex = 6
+
+AddHover(CloseButton, T.Panel, T.Primary)
+PressAnimation(CloseButton)
+
+-- Header separator
+Create("Frame", {
+    Position = UDim2.new(0, 0, 1, 3),
+    Size = UDim2.new(1, 0, 0, 1),
+    BackgroundColor3 = T.Border,
+    BackgroundTransparency = 0.3,
+    BorderSizePixel = 0,
+}, Header)
+
+--==============================================================
+-- [7] CONTENT
+--==============================================================
+
+local Content = Create("ScrollingFrame", {
+    Name = "Content",
+    Position = UDim2.fromOffset(20, 100),
+    Size = UDim2.new(1, -40, 1, -119),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = T.Primary,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ZIndex = 3,
+}, Main)
+
+Create("UIPadding", {
+    PaddingLeft = UDim.new(0, 1),
+    PaddingRight = UDim.new(0, 5),
+    PaddingTop = UDim.new(0, 3),
+    PaddingBottom = UDim.new(0, 5),
+}, Content)
+
+Create("UIListLayout", {
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 13),
+}, Content)
+
+--==============================================================
+-- [8] STATUS PANEL
+--==============================================================
+
+local StatusPanel = Create("Frame", {
+    Name = "StatusPanel",
+    Size = UDim2.new(1, -6, 0, 63),
+    BackgroundColor3 = T.Panel,
+    BorderSizePixel = 0,
+    LayoutOrder = 1,
+    ZIndex = 3,
+}, Content)
+
+Corner(StatusPanel, 12)
+Stroke(StatusPanel, T.Border, 1, 0.35)
+
+local StatusDot = Create("Frame", {
+    Position = UDim2.fromOffset(14, 22),
+    Size = UDim2.fromOffset(9, 9),
+    BackgroundColor3 = T.Success,
+    BorderSizePixel = 0,
+}, StatusPanel)
+
+Corner(StatusDot, 99)
+
+Label(
+    StatusPanel,
+    "SYSTEM STATUS",
+    UDim2.new(1, -50, 0, 18),
+    UDim2.fromOffset(32, 10),
+    9,
+    T.Muted,
+    Enum.Font.GothamBold
+)
+
+local Status = Label(
+    StatusPanel,
+    "READY FOR VERIFICATION",
+    UDim2.new(1, -50, 0, 20),
+    UDim2.fromOffset(32, 29),
+    11,
+    T.Text,
+    Enum.Font.GothamBold
+)
+
+--==============================================================
+-- [9] KEY CARD
+--==============================================================
+
+local KeyCard = Create("Frame", {
+    Name = "KeyCard",
+    Size = UDim2.new(1, -6, 0, 195),
+    BackgroundColor3 = T.Panel,
+    BorderSizePixel = 0,
+    LayoutOrder = 2,
+    ZIndex = 3,
+}, Content)
+
+Corner(KeyCard, 13)
+local KeyCardStroke = Stroke(KeyCard, T.Border, 1, 0.25)
+
+Create("Frame", {
+    Size = UDim2.new(0, 3, 1, -28),
+    Position = UDim2.fromOffset(0, 14),
+    BackgroundColor3 = T.Primary,
+    BorderSizePixel = 0,
+}, KeyCard)
+
+Label(
+    KeyCard,
+    "ACCESS TERMINAL",
+    UDim2.new(1, -30, 0, 23),
+    UDim2.fromOffset(16, 13),
+    14,
+    T.Text,
+    Enum.Font.GothamBlack
+)
+
+Label(
+    KeyCard,
+    "Enter your license key to unlock access.",
+    UDim2.new(1, -30, 0, 19),
+    UDim2.fromOffset(16, 38),
+    10,
+    T.Muted
+)
+
+local KeyBox = Create("TextBox", {
+    Name = "KeyBox",
+    Position = UDim2.fromOffset(15, 67),
+    Size = UDim2.new(1, -30, 0, 41),
+    BackgroundColor3 = T.Input,
+    PlaceholderText = "  Enter your key...",
+    PlaceholderColor3 = T.Muted,
+    Text = "",
+    TextColor3 = T.Text,
+    TextSize = 12,
+    Font = Enum.Font.Code,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    BorderSizePixel = 0,
+    ZIndex = 4,
+}, KeyCard)
+
+Corner(KeyBox, 9)
+local InputStroke = Stroke(KeyBox, T.Border, 1, 0.2)
+
+KeyBox.Focused:Connect(function()
+    Tween(InputStroke, 0.2, {
+        Color = T.Primary,
+        Transparency = 0,
+        Thickness = 1.5,
     })
-end
+end)
 
-local function SaveMemory()
-    local memory = LoadJSON(MEMORY_FILE) or {}
+KeyBox.FocusLost:Connect(function()
+    Tween(InputStroke, 0.2, {
+        Color = T.Border,
+        Transparency = 0.2,
+        Thickness = 1,
+    })
+end)
 
-    memory.lastUsername = LocalPlayer.Name
-    memory.lastUserId = LocalPlayer.UserId
-    memory.lastPlaceId = game.PlaceId
-    memory.lastSeen = os.time()
+local VerifyButton = Button(
+    KeyCard,
+    "VERIFY ACCESS     →",
+    UDim2.new(1, -30, 0, 38),
+    UDim2.fromOffset(15, 119),
+    T.Primary
+)
 
-    return SaveJSON(MEMORY_FILE, memory)
-end
+VerifyButton.ZIndex = 4
+AddHover(VerifyButton, T.Primary, T.Primary:Lerp(Color3.new(1, 1, 1), 0.12))
+PressAnimation(VerifyButton)
 
---==================================================
--- GAME INFORMATION
---==================================================
+Gradient(VerifyButton, T.Primary, T.Secondary, 0)
 
-local function PrintVLHubInfo()
-    local gameName = "Unknown Map"
+Label(
+    KeyCard,
+    "SECURE ACCESS  •  PRIVATE SESSION",
+    UDim2.new(1, -30, 0, 17),
+    UDim2.fromOffset(16, 162),
+    8,
+    T.Muted,
+    Enum.Font.GothamMedium
+)
 
-    local ok, result = pcall(function()
-        return MarketplaceService:GetProductInfo(game.PlaceId)
-    end)
+--==============================================================
+-- [10] SOCIAL LINKS
+--==============================================================
 
-    if ok and result then
-        gameName = result.Name or gameName
+local SocialCard = Create("Frame", {
+    Name = "SocialCard",
+    Size = UDim2.new(1, -6, 0, 0),
+    AutomaticSize = Enum.AutomaticSize.Y,
+    BackgroundColor3 = T.Panel,
+    BorderSizePixel = 0,
+    LayoutOrder = 3,
+    ZIndex = 3,
+}, Content)
+
+Corner(SocialCard, 13)
+Stroke(SocialCard, T.Border, 1, 0.3)
+
+Create("UIPadding", {
+    PaddingLeft = UDim.new(0, 13),
+    PaddingRight = UDim.new(0, 13),
+    PaddingTop = UDim.new(0, 13),
+    PaddingBottom = UDim.new(0, 13),
+}, SocialCard)
+
+Create("UIListLayout", {
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 8),
+}, SocialCard)
+
+local SocialHeading = Label(
+    SocialCard,
+    "COMMUNITY LINKS",
+    UDim2.new(1, 0, 0, 22),
+    UDim2.new(),
+    12,
+    T.Text,
+    Enum.Font.GothamBlack
+)
+
+SocialHeading.LayoutOrder = 1
+
+local SocialSubheading = Label(
+    SocialCard,
+    "FOLLOW OUR OFFICIAL CHANNELS",
+    UDim2.new(1, 0, 0, 17),
+    UDim2.new(),
+    9,
+    T.Muted
+)
+
+SocialSubheading.LayoutOrder = 2
+
+local function CopyText(text)
+    -- Clipboard access is not available in normal Roblox Studio LocalScripts.
+    -- If this environment provides setclipboard, use it.
+    if type(setclipboard) == "function" then
+        local success = pcall(setclipboard, text)
+        if success then
+            return true
+        end
     end
 
-    local character = LocalPlayer.Character
-    local characterName = character and character.Name
-        or LocalPlayer.Name
+    -- Fallback: put the URL in the key input so it can be selected manually.
+    KeyBox.Text = text
+    KeyBox:CaptureFocus()
+    KeyBox.CursorPosition = #text + 1
 
-    print("========================================")
-    print("          " .. HUB_NAME)
-    print("========================================")
-    print("Map Name       : " .. gameName)
-    print("Place ID       : " .. tostring(game.PlaceId))
-    print("Job ID         : " .. tostring(game.JobId))
-    print("Player Name    : " .. LocalPlayer.Name)
-    print("Display Name   : " .. LocalPlayer.DisplayName)
-    print("User ID        : " .. tostring(LocalPlayer.UserId))
-    print("Character Name : " .. characterName)
-    print("Time           : " .. os.date("%Y-%m-%d %H:%M:%S"))
-    print("========================================")
+    return false
 end
 
---==================================================
--- MAIN FEATURE
--- Add your own authorized game functionality here.
---==================================================
+local socialLayoutOrder = 3
 
-local function RunMainScript()
-    if Started then
+for _, social in ipairs(Config.Socials) do
+    if social.Enabled then
+        local Row = Create("Frame", {
+            Name = social.Name .. "Row",
+            Size = UDim2.new(1, 0, 0, 41),
+            BackgroundColor3 = T.Input,
+            BorderSizePixel = 0,
+            LayoutOrder = socialLayoutOrder,
+            ZIndex = 4,
+        }, SocialCard)
+
+        socialLayoutOrder += 1
+
+        Corner(Row, 9)
+        local RowStroke = Stroke(Row, T.Border, 1, 0.5)
+
+        local AccentBar = Create("Frame", {
+            Size = UDim2.new(0, 3, 1, -14),
+            Position = UDim2.fromOffset(0, 7),
+            BackgroundColor3 = T.Primary,
+            BorderSizePixel = 0,
+        }, Row)
+
+        Corner(AccentBar, 3)
+
+        Label(
+            Row,
+            social.Name,
+            UDim2.new(1, -105, 1, 0),
+            UDim2.fromOffset(12, 0),
+            10,
+            T.Text,
+            Enum.Font.GothamBold
+        )
+
+        local CopyButton = Button(
+            Row,
+            "COPY  ↗",
+            UDim2.fromOffset(78, 29),
+            UDim2.new(1, -84, 0.5, -14),
+            Color3.fromRGB(42, 25, 37)
+        )
+
+        CopyButton.TextSize = 9
+        CopyButton.ZIndex = 5
+        AddHover(CopyButton, Color3.fromRGB(42, 25, 37), T.Primary)
+        PressAnimation(CopyButton)
+
+        Row.MouseEnter:Connect(function()
+            Tween(Row, 0.15, {
+                BackgroundColor3 = T.PanelHover,
+            })
+
+            Tween(RowStroke, 0.15, {
+                Color = T.Primary,
+                Transparency = 0.2,
+            })
+
+            Tween(AccentBar, 0.15, {
+                Size = UDim2.new(0, 4, 1, -8),
+                Position = UDim2.fromOffset(0, 4),
+            })
+        end)
+
+        Row.MouseLeave:Connect(function()
+            Tween(Row, 0.15, {
+                BackgroundColor3 = T.Input,
+            })
+
+            Tween(RowStroke, 0.15, {
+                Color = T.Border,
+                Transparency = 0.5,
+            })
+
+            Tween(AccentBar, 0.15, {
+                Size = UDim2.new(0, 3, 1, -14),
+                Position = UDim2.fromOffset(0, 7),
+            })
+        end)
+
+        CopyButton.Activated:Connect(function()
+            local copied = CopyText(social.Link)
+
+            if copied then
+                Status.Text = "COPIED: " .. social.Name
+                Status.TextColor3 = T.Success
+                StatusDot.BackgroundColor3 = T.Success
+                CopyButton.Text = "COPIED ✓"
+            else
+                Status.Text = "LINK READY TO SELECT"
+                Status.TextColor3 = T.Muted
+                StatusDot.BackgroundColor3 = T.Primary
+                CopyButton.Text = "SELECT"
+            end
+
+            task.delay(1.4, function()
+                if CopyButton.Parent then
+                    CopyButton.Text = "COPY  ↗"
+                end
+            end)
+        end)
+    end
+end
+
+local Footer = Label(
+    SocialCard,
+    "DESIGNED BY " .. Config.Developer,
+    UDim2.new(1, 0, 0, 18),
+    UDim2.new(),
+    8,
+    T.Muted,
+    Enum.Font.GothamMedium
+)
+
+Footer.TextXAlignment = Enum.TextXAlignment.Center
+Footer.LayoutOrder = socialLayoutOrder + 1
+
+--==============================================================
+-- [11] OPEN / CLOSE ANIMATIONS
+--==============================================================
+
+local IsClosing = false
+local IsVerifying = false
+
+local function OpenAnimation()
+    Tween(Overlay, Anim.OpenTime, {
+        BackgroundTransparency = 0.32,
+    })
+
+    Tween(Main, Anim.OpenTime, {
+        BackgroundTransparency = 0,
+        Size = UDim2.fromOffset(width, height),
+    }, Enum.EasingStyle.Back)
+
+    Tween(Scale, Anim.OpenTime, {
+        Scale = 1,
+    }, Enum.EasingStyle.Back)
+
+    Tween(MainStroke, Anim.OpenTime, {
+        Transparency = 0.1,
+    })
+
+    if BlurEffect then
+        Tween(BlurEffect, Anim.OpenTime, {
+            Size = Anim.BlurSize,
+        })
+    end
+
+    -- Scan the accent light across the top.
+    if Anim.EnableScanLine then
+        task.spawn(function()
+            while ScreenGui.Parent and not IsClosing do
+                GlowLine.Position = UDim2.new(-0.4, 0, 0, 3)
+
+                local scan = Tween(GlowLine, 1.1, {
+                    Position = UDim2.new(1.05, 0, 0, 3),
+                }, Enum.EasingStyle.Linear)
+
+                scan.Completed:Wait()
+                task.wait(1.0)
+            end
+        end)
+    end
+
+    -- Gentle breathing glow on the border.
+    task.spawn(function()
+        while ScreenGui.Parent and not IsClosing do
+            Tween(MainStroke, 0.9, {
+                Transparency = 0.35,
+            })
+            task.wait(0.9)
+
+            if not ScreenGui.Parent or IsClosing then
+                break
+            end
+
+            Tween(MainStroke, 0.9, {
+                Transparency = 0.08,
+            })
+            task.wait(0.9)
+        end
+    end)
+end
+
+local function CloseGUI()
+    if IsClosing then
         return
     end
 
-    Started = true
+    IsClosing = true
 
-    print("[PVClient] Key verified.")
-    print("[PVClient] Main feature started.")
+    Tween(Overlay, Anim.CloseTime, {
+        BackgroundTransparency = 1,
+    })
 
-    PrintVLHubInfo()
+    Tween(Main, Anim.CloseTime, {
+        BackgroundTransparency = 1,
+        Size = UDim2.fromOffset(width * 0.9, height * 0.9),
+    }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
 
+    Tween(Scale, Anim.CloseTime, {
+        Scale = 0.88,
+    }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+
+    Tween(MainStroke, Anim.CloseTime, {
+        Transparency = 1,
+    })
+
+    if BlurEffect then
+        Tween(BlurEffect, Anim.CloseTime, {
+            Size = 0,
+        })
+    end
+
+    task.wait(Anim.CloseTime + 0.05)
+
+    if BlurEffect then
+        BlurEffect:Destroy()
+    end
+
+    ScreenGui:Destroy()
+end
+
+--==============================================================
+-- [12] KEY VERIFICATION
+--==============================================================
+
+local function IsKeyValid(key)
+    for _, validKey in ipairs(Config.TestKeys) do
+        if key == validKey then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function RunMainScript()
+    -- Replace this with functionality for your own Roblox experience.
+    print("====================================")
+    print("Loaded:", Config.HubName)
+    print("Version:", Config.Version)
+    print("Player:", Player.Name)
+    print("UserId:", Player.UserId)
+    print("PlaceId:", game.PlaceId)
+    print("JobId:", game.JobId)
+    print("Time:", os.date("%Y-%m-%d %H:%M:%S"))
+    print("====================================")
     loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"))() 
 end
 
---==================================================
--- GUI HELPERS
---==================================================
-
-local function AddCorner(target, radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius)
-    corner.Parent = target
-end
-
-local function ShowKeyGUI()
-    if ScreenGui and ScreenGui.Parent then
+VerifyButton.Activated:Connect(function()
+    if IsVerifying or IsClosing then
         return
     end
 
-    ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "PVClientKeyGUI"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.DisplayOrder = 999
+    IsVerifying = true
+    VerifyButton.Active = false
+    VerifyButton.Text = "CHECKING ACCESS..."
 
-    local parentOK = pcall(function()
-        ScreenGui.Parent = CoreGui
-    end)
+    Status.Text = "VALIDATING LICENSE..."
+    Status.TextColor3 = T.Primary
+    StatusDot.BackgroundColor3 = T.Primary
 
-    if not parentOK then
-        ScreenGui.Parent = PlayerGui
-    end
+    Tween(KeyCardStroke, 0.2, {
+        Color = T.Primary,
+        Transparency = 0,
+    })
 
-    local Frame = Instance.new("Frame")
-    Frame.Name = "MainFrame"
-    Frame.Size = UDim2.fromOffset(350, 190)
-    Frame.Position = UDim2.fromScale(0.5, 0.5)
-    Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    Frame.BackgroundColor3 = Color3.fromRGB(18, 18, 23)
-    Frame.BorderSizePixel = 0
-    Frame.Parent = ScreenGui
+    task.wait(0.35)
 
-    AddCorner(Frame, 12)
+    if IsKeyValid(KeyBox.Text) then
+        Status.Text = "ACCESS GRANTED ✓"
+        Status.TextColor3 = T.Success
+        StatusDot.BackgroundColor3 = T.Success
 
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, -20, 0, 40)
-    Title.Position = UDim2.fromOffset(10, 8)
-    Title.BackgroundTransparency = 1
-    Title.Text = "PV CLIENT | KEY SYSTEM"
-    Title.TextColor3 = Color3.fromRGB(255, 65, 75)
-    Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 16
-    Title.Parent = Frame
+        VerifyButton.Text = "ACCESS GRANTED"
+        VerifyButton.BackgroundColor3 = T.Success
 
-    local Box = Instance.new("TextBox")
-    Box.Name = "KeyBox"
-    Box.Size = UDim2.new(1, -30, 0, 40)
-    Box.Position = UDim2.fromOffset(15, 58)
-    Box.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-    Box.TextColor3 = Color3.new(1, 1, 1)
-    Box.PlaceholderText = "Enter your key"
-    Box.PlaceholderColor3 = Color3.fromRGB(140, 140, 150)
-    Box.Text = ""
-    Box.ClearTextOnFocus = false
-    Box.Font = Enum.Font.Gotham
-    Box.TextSize = 13
-    Box.Parent = Frame
+        Tween(KeyCardStroke, 0.2, {
+            Color = T.Success,
+            Transparency = 0,
+        })
 
-    AddCorner(Box, 7)
+        task.wait(0.65)
 
-    local Verify = Instance.new("TextButton")
-    Verify.Name = "VerifyButton"
-    Verify.Size = UDim2.new(1, -30, 0, 35)
-    Verify.Position = UDim2.fromOffset(15, 108)
-    Verify.BackgroundColor3 = Color3.fromRGB(195, 35, 48)
-    Verify.TextColor3 = Color3.new(1, 1, 1)
-    Verify.Text = "VERIFY KEY"
-    Verify.Font = Enum.Font.GothamBold
-    Verify.TextSize = 13
-    Verify.Parent = Frame
-
-    AddCorner(Verify, 7)
-
-    local Status = Instance.new("TextLabel")
-    Status.Name = "Status"
-    Status.Size = UDim2.new(1, -20, 0, 25)
-    Status.Position = UDim2.fromOffset(10, 150)
-    Status.BackgroundTransparency = 1
-    Status.Text = "Enter your key to continue"
-    Status.TextColor3 = Color3.fromRGB(180, 180, 190)
-    Status.Font = Enum.Font.Gotham
-    Status.TextSize = 11
-    Status.Parent = Frame
-
-    --==================================================
-    -- VERIFY KEY
-    --==================================================
-
-    local function VerifyKey()
-        if Busy or Started then
-            return
-        end
-
-        if Box.Text ~= VALID_KEY then
-            Status.Text = "Invalid key!"
-            Status.TextColor3 = Color3.fromRGB(255, 75, 75)
-            Log("Key verification failed")
-            return
-        end
-
-        Busy = true
-        Verify.Text = "VERIFYING..."
-        Verify.Active = false
-
-        if not SaveKey() then
-            Busy = false
-            Verify.Active = true
-            Verify.Text = "VERIFY KEY"
-
-            Status.Text = "Unable to save key"
-            Status.TextColor3 = Color3.fromRGB(255, 75, 75)
-
-            Log("Key save failed")
-            return
-        end
-
-        Status.Text = "Key accepted!"
-        Status.TextColor3 = Color3.fromRGB(90, 230, 130)
-
-        Log("Key verification succeeded")
-        SaveSession()
-        SaveMemory()
-
-        task.wait(0.3)
-
-        if ScreenGui then
-            ScreenGui:Destroy()
-            ScreenGui = nil
-        end
-
-        Busy = false
+        CloseGUI()
         RunMainScript()
-    end
+    else
+        Status.Text = "INVALID KEY — TRY AGAIN"
+        Status.TextColor3 = T.Error
+        StatusDot.BackgroundColor3 = T.Error
 
-    Verify.Activated:Connect(VerifyKey)
+        VerifyButton.Text = "INVALID KEY"
+        VerifyButton.BackgroundColor3 = T.Error
 
-    Box.FocusLost:Connect(function(enterPressed)
-        if enterPressed then
-            VerifyKey()
+        Tween(KeyCardStroke, 0.12, {
+            Color = T.Error,
+            Transparency = 0,
+        })
+
+        -- Small shake effect.
+        local originalPosition = Main.Position
+
+        for _, offset in ipairs({-7, 7, -5, 5, 0}) do
+            if not Main.Parent then
+                break
+            end
+
+            Tween(Main, 0.035, {
+                Position = originalPosition + UDim2.fromOffset(offset, 0),
+            }, Enum.EasingStyle.Linear)
+
+            task.wait(0.035)
         end
-    end)
-end
 
---==================================================
--- STARTUP
---==================================================
+        if Main.Parent then
+            Main.Position = originalPosition
+        end
 
-local function StartWithKey()
-    if not InitStorage() then
-        warn(
-            "[PVClient] File APIs unavailable. " ..
-            "This version requires an environment that " ..
-            "supports makefolder/isfolder/readfile/writefile."
-        )
+        task.wait(0.6)
+
+        if ScreenGui.Parent and not IsClosing then
+            VerifyButton.Text = "VERIFY ACCESS     →"
+            VerifyButton.BackgroundColor3 = T.Primary
+            VerifyButton.Active = true
+
+            Status.Text = "READY FOR VERIFICATION"
+            Status.TextColor3 = T.Text
+            StatusDot.BackgroundColor3 = T.Success
+
+            Tween(KeyCardStroke, 0.2, {
+                Color = T.Border,
+                Transparency = 0.25,
+            })
+        end
+
+        IsVerifying = false
+    end
+end)
+
+--==============================================================
+-- [13] CLOSE CONTROLS
+--==============================================================
+
+CloseButton.Activated:Connect(CloseGUI)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed or IsClosing then
         return
     end
 
-    SaveSession()
-    SaveMemory()
-    Log("Client initialized")
-
-    if HasSavedKey() then
-        Log("Previously saved key found")
-        SaveSession()
-        SaveMemory()
-        RunMainScript()
-        return
+    if Config.GUI.CloseWithEscape
+        and input.KeyCode == Enum.KeyCode.Escape then
+        CloseGUI()
     end
+end)
 
-    ShowKeyGUI()
-end
+--==============================================================
+-- [14] START
+--==============================================================
 
-StartWithKey()
+OpenAnimation()
+
+print("[PV CLIENT] Premium Motion UI initialized.")
