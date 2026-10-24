@@ -4,11 +4,10 @@
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-
 local Player = Players.LocalPlayer
 
 -- CONFIG
-local MAX_DISTANCE = 4
+local MAX_DISTANCE = 5.5
 local COOLDOWN = 0.5
 local KEYBIND = Enum.KeyCode.Q
 
@@ -113,9 +112,6 @@ if not Tool or not Tool:IsA("Tool") then
     return
 end
 
-local LocalScript = Tool:FindFirstChild("LocalScript")
-local Event = LocalScript and LocalScript:FindFirstChild("Damage")
-
 
 local function GetWorkspaceModel(player)
     if not player then
@@ -210,7 +206,8 @@ UserInputService.InputBegan:Connect(function(Input, Processed)
     if not AnimationTrack and not LoadAnimation() then
         return
     end
-
+    local LocalScript = Tool:FindFirstChild("LocalScript")
+    local Event = LocalScript and LocalScript:FindFirstChild("Damage") 
     if not Event or not Event.Parent then
         if not SetupTool() then
             return
@@ -228,46 +225,14 @@ UserInputService.InputBegan:Connect(function(Input, Processed)
 local Target, targetModel = GetNearestPlayer()
 local Tool = GetEquippedTool()
 local Target = GetNearestPlayer()
-local function RunToolCode(TargetModel)
-    local CurrentCharacter = Player.Character
-    if not CurrentCharacter then
-        return false
-    end
-
-    Tool = CurrentCharacter:FindFirstChildOfClass("Tool")
-
-    if not Tool then
-        return false
-    end
-
-    local ToolName = SetupTool()
-
-    if not ToolName or not TargetModel then
-        return false
-    end
-    print(ToolName or Tool )
-    if ToolName or Tool == "Training1Poolcue" then
-        local Event = game:GetService("Players").LocalPlayer.Character.Training1Poolcue.LocalScript.Damage
+local NameTool =  GetEquippedTool()
+local Event = NameTool:FindFirstChild("LocalScript"):FindFirstChild("Damage")
 Event:FireServer(
     Target and targetModel  ,
     "Head"
 )
-    elseif ToolName or Tool == "BaseballBat" then
-        local Event = game:GetService("Players").LocalPlayer.Character.BaseballBat.LocalScript.Damage
-Event:FireServer(
-    Target and targetModel  ,
-    "Head"
-)
-    elseif ToolName or Tool == "Poolcue" then
-        local Event = game:GetService("Players").LocalPlayer.Character.Poolcue.LocalScript.Damage
-Event:FireServer(
-    Target and targetModel  ,
-    "Head"
-)
-    end
-
-    return true
-end
+      
+    -- ปลดล็อกเมื่ออนิเมชันจบ
     local CurrentTrack = AnimationTrack
 
     task.spawn(function()
