@@ -7,7 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local Player = Players.LocalPlayer
 
 -- CONFIG
-local MAX_DISTANCE = 5.5
+local MAX_DISTANCE = 6.3
 local COOLDOWN = 0.5
 local KEYBIND = Enum.KeyCode.Q
 
