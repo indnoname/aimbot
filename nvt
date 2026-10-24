@@ -102,7 +102,7 @@ local function GetEquippedTool()
         return nil
     end
 
-    return Character:FindFirstChild("Training1Poolcue")
+    return Character:FindFirstChildOfClass("Tool")
 end
 
 local Tool = GetEquippedTool()
