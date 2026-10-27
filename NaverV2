@@ -1,0 +1,378 @@
+--==================================================
+-- Q SLASH SYSTEM | LocalScript
+--==================================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Player = Players.LocalPlayer
+
+-- CONFIG
+local MAX_DISTANCE = 6.5
+local COOLDOWN = 0.7
+local KEYBIND = Enum.KeyCode.Q
+
+-- STATE
+local Character
+local Humanoid
+local Animator
+local AnimationTrack
+
+local Equipped = false
+local Busy = false
+local LastAttack = 0
+-- HIT SOUND SYSTEM
+local AttackActive = false
+local AttackHit = false
+local HitConnection = nil
+-- TOOL REFERENCES
+local Tool
+local Event
+local Animation
+
+-- หา Tool และ RemoteEvent
+local function SetupTool()
+    local CurrentCharacter = Player.Character
+    if not CurrentCharacter then
+        return false
+    end
+
+    Tool = CurrentCharacter:FindFirstChildOfClass("Tool")
+
+    if not Tool then
+        return false
+    end
+
+    local LocalScript = Tool:FindFirstChild("LocalScript")
+    local Event = LocalScript and LocalScript:FindFirstChild("Damage")
+    Animation = Tool:FindFirstChild("RightSlashx", true)
+
+    if not Event or not Event:IsA("RemoteEvent") then
+        warn("ไม่พบ RemoteEvent: Damage")
+        return false
+    end
+
+    if not Animation or not Animation:IsA("Animation") then
+        warn("ไม่พบ Animation: RightSlashx")
+        return false
+    end
+
+    return true
+end
+
+-- โหลดอนิเมชัน
+local function LoadAnimation()
+    if not Character or not Humanoid or Humanoid.Health <= 0 then
+        return false
+    end
+
+    if not SetupTool() then
+        return false
+    end
+
+    Animator = Humanoid:FindFirstChildOfClass("Animator")
+
+    if not Animator then
+        Animator = Instance.new("Animator")
+        Animator.Parent = Humanoid
+    end
+
+    if AnimationTrack then
+        AnimationTrack:Stop()
+        AnimationTrack:Destroy()
+        AnimationTrack = nil
+    end
+
+    local Success, Result = pcall(function()
+        return Animator:LoadAnimation(Animation)
+    end)
+
+    if not Success then
+        warn("โหลดอนิเมชันไม่สำเร็จ:", Result)
+        return false
+    end
+
+    AnimationTrack = Result
+    return true
+end
+
+-- ค้นหาผู้เล่นที่ใกล้ที่สุด
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+
+local function GetEquippedTool()
+    local Character = Player.Character
+    if not Character then
+        return nil
+    end
+
+    return Character:FindFirstChildOfClass("Tool")
+end
+
+local Tool = GetEquippedTool()
+
+if not Tool or not Tool:IsA("Tool") then
+    warn("กรุณาถืออาวุธก่อน")
+    return
+end
+local Tool = GetEquippedTool()
+
+local function GetWorkspaceModel(player)
+    if not player then
+        return nil
+    end
+
+    -- ค้นหา Model ใน Workspace ชั้นแรกเท่านั้น
+    local model = workspace:FindFirstChild(player.Name)
+
+    if model and model:IsA("Model") then
+        return model
+    end
+
+    return nil
+end
+
+local function GetNearestPlayer()
+    local Player = Players.LocalPlayer
+    local Character = Player.Character
+    local Root = Character and Character:FindFirstChild("HumanoidRootPart")
+
+    if not Root then
+        return nil, nil
+    end
+
+    local NearestPlayer = nil
+    local NearestModel = nil
+    local NearestDistance = MAX_DISTANCE
+
+    for _, Target in ipairs(Players:GetPlayers()) do
+        if Target ~= Player then
+            local Model = GetWorkspaceModel(Target)
+
+            if Model then
+                local TargetRoot = Model:FindFirstChild("HumanoidRootPart")
+
+                if TargetRoot then
+                    local Distance = (Root.Position - TargetRoot.Position).Magnitude
+
+                    if Distance < NearestDistance then
+                        NearestPlayer = Target
+                        NearestModel = Model
+                        NearestDistance = Distance
+                    end
+                end
+            end
+        end
+    end
+
+    return NearestPlayer, NearestModel
+end
+
+-- ตั้งค่าตัวละคร
+local function OnCharacterAdded(NewCharacter)
+    Character = NewCharacter
+    Humanoid = NewCharacter:WaitForChild("Humanoid")
+
+    Animator = nil
+    AnimationTrack = nil
+    Equipped = false
+    Busy = false
+end
+
+if Player.Character then
+    task.spawn(OnCharacterAdded, Player.Character)
+end
+
+Player.CharacterAdded:Connect(OnCharacterAdded)
+
+
+-- HITBOX SOUND SYSTEM
+local function StartHitSound(Tool)
+    if not Tool then
+        return
+    end
+
+    local Handle = Tool:FindFirstChild("Handle")
+    if not Handle then
+        return
+    end
+
+    local HitBox = Handle:FindFirstChild("HitBox")
+    local HitSound = Handle:FindFirstChild("Hit")
+
+    if not HitBox or not HitBox:IsA("BasePart") then
+        warn("ไม่พบ HitBox")
+        return
+    end
+
+    if not HitSound or not HitSound:IsA("Sound") then
+        warn("ไม่พบเสียง Hit")
+        return
+    end
+
+    if HitConnection then
+        HitConnection:Disconnect()
+        HitConnection = nil
+    end
+
+    AttackActive = true
+    AttackHit = false
+
+    HitConnection = HitBox.Touched:Connect(function(Part)
+        if not AttackActive or AttackHit then
+            return
+        end
+
+        if not Part or Part:IsDescendantOf(Character) then
+            return
+        end
+
+        if Part:IsDescendantOf(Tool) then
+            return
+        end
+
+        local Model = Part:FindFirstAncestorOfClass("Model")
+        local HumanoidTarget = Model
+            and Model:FindFirstChildOfClass("Humanoid")
+
+        -- เลือกเสียงตามสิ่งที่สัมผัส
+        local SoundToPlay
+
+        if HumanoidTarget and HumanoidTarget.Health > 0 then
+            SoundToPlay = HitSound
+        end
+
+        AttackHit = true
+
+        SoundToPlay:Stop()
+        SoundToPlay.TimePosition = 0
+        SoundToPlay:Play()
+    end)
+end
+
+local function StopHitSound()
+    AttackActive = false
+
+    if HitConnection then
+        HitConnection:Disconnect()
+        HitConnection = nil
+    end
+end
+
+-- ตรวจจับการกด Q เพียงครั้งเดียว
+UserInputService.InputBegan:Connect(function(Input, Processed)
+    if Processed then
+        return
+    end
+
+    if Input.KeyCode ~= KEYBIND then
+        return
+    end
+
+    if Busy or not Equipped then
+        return
+    end
+
+    if os.clock() - LastAttack < COOLDOWN then
+        return
+    end
+
+    if not Character or not Humanoid or Humanoid.Health <= 0 then
+        return
+    end
+
+    if not AnimationTrack and not LoadAnimation() then
+        return
+    end
+    local LocalScript = Tool:FindFirstChild("LocalScript")
+    local Event = LocalScript and LocalScript:FindFirstChild("Damage") 
+    if not Event or not Event.Parent then
+        if not SetupTool() then
+            return
+        end
+    end
+
+
+    -- ล็อกการโจมตี
+    Busy = true
+    LastAttack = os.clock()
+
+    local v1 = Humanoid
+
+    -- เรียก RemoteEvent ทันทีพร้อมกับอนิเมชัน
+------------------
+local Target, TargetModel = GetNearestPlayer()
+
+local Tool = GetEquippedTool()
+local NameTool =  GetEquippedTool()
+local Sound = StartHitSound()
+    -- เล่นอนิเมชัน
+    AnimationTrack:Play()
+    StartHitSound(Tool)
+-------------------
+local Event = NameTool:FindFirstChild("LocalScript"):FindFirstChild("Damage")
+Event:FireServer(
+    Target and TargetModel  ,
+    "Head"
+)
+      
+    -- ปลดล็อกเมื่ออนิเมชันจบ
+    local CurrentTrack = AnimationTrack
+
+    task.spawn(function()
+        CurrentTrack.Ended:Wait()
+        StopHitSound()
+        if AnimationTrack == CurrentTrack then
+            Busy = false
+        end
+    end)
+end)
+
+-- ตรวจจับการถือและเก็บ Tool
+local function BindTool(ToolObject)
+    if not ToolObject:IsA("Tool") then
+        return
+    end
+
+    ToolObject.Equipped:Connect(function()
+        if ToolObject.Parent ~= Character then
+            return
+        end
+
+        Tool = ToolObject
+        Equipped = true
+        LoadAnimation()
+    end)
+
+    ToolObject.Unequipped:Connect(function()
+        if Tool ~= ToolObject then
+            return
+        end
+
+        Equipped = false
+        Busy = false
+
+        if AnimationTrack then
+            AnimationTrack:Stop()
+        end
+    end)
+end
+
+local function WatchCharacter(NewCharacter)
+    for _, Object in ipairs(NewCharacter:GetChildren()) do
+        if Object:IsA("Tool") then
+            BindTool(Object)
+        end
+    end
+
+    NewCharacter.ChildAdded:Connect(function(Object)
+        if Object:IsA("Tool") then
+            BindTool(Object)
+        end
+    end)
+end
+
+Player.CharacterAdded:Connect(WatchCharacter)
+
+if Player.Character then
+    WatchCharacter(Player.Character)
+end
