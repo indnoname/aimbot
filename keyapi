@@ -937,7 +937,7 @@ local function RunMainScript()
     print("JobId:", game.JobId)
     print("Time:", os.date("%Y-%m-%d %H:%M:%S"))
     print("====================================")
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/aimbot"))() 
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/indnoname/aimbot/refs/heads/main/NaverV2"))() 
 end
 
 VerifyButton.Activated:Connect(function()
