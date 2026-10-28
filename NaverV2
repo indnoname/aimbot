@@ -1,4 +1,3 @@
-
 --==================================================
 -- Q SLASH SYSTEM | LocalScript
 --==================================================
@@ -12,12 +11,15 @@ local Player = Players.LocalPlayer
 local MAX_DISTANCE = 6.5
 local COOLDOWN = 0.5
 local KEYBIND = Enum.KeyCode.Q
-
+local HIT_SCAN_TIME = 0.15
 -- STATE
 local Character
 local Humanoid
 local Animator
 local AnimationTrack
+
+
+local AttackId = nil
 
 local Tool
 local DamageEvent
@@ -30,15 +32,78 @@ local Busy = false
 local AttackActive = false
 local AttackHit = false
 local LastAttack = 0
-
+local AttackId = 0
 local HitConnection
 local BoundTools = {}
 local CharacterChildConnection
+local function SetupCharacter(NewCharacter)
+    Character = NewCharacter
+    Humanoid = NewCharacter:WaitForChild("Humanoid")
+    Animator = Humanoid:WaitForChild("Animator")
+
+    Equipped = false
+    Busy = false
+    AttackActive = false
+
+    if HitConnection then
+        HitConnection:Disconnect()
+        HitConnection = nil
+    end
+
+    if AnimationTrack then
+        AnimationTrack:Stop()
+        AnimationTrack:Destroy()
+        AnimationTrack = nil
+    end
+end
+
+Player.CharacterAdded:Connect(SetupCharacter)
+
+if Player.Character then
+    task.spawn(SetupCharacter, Player.Character)
+end
 
 --==================================================
--- ตั้งค่า Tool
+-- VALIDATE TARGET
 --==================================================
 
+local function GetValidTargetFromPart(Part)
+    if not Part or not Part:IsA("BasePart") then
+        return nil
+    end
+
+    local Model = Part:FindFirstAncestorOfClass("Model")
+    if not Model or Model == Character then
+        return nil
+    end
+
+    local TargetPlayer = Players:GetPlayerFromCharacter(Model)
+    if not TargetPlayer or TargetPlayer == Player then
+        return nil
+    end
+
+    local TargetHumanoid = Model:FindFirstChildOfClass("Humanoid")
+    local TargetRoot = Model:FindFirstChild("HumanoidRootPart")
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+
+    -- ต้องมีชีวิตอยู่จริง
+    if not TargetHumanoid or TargetHumanoid.Health <= 0 then
+        return nil
+    end
+
+    if not TargetRoot or not MyRoot then
+        return nil
+    end
+
+    -- ต้องอยู่ในระยะที่กำหนด
+    local Distance = (MyRoot.Position - TargetRoot.Position).Magnitude
+    if Distance > MAX_DISTANCE then
+        return nil
+    end
+
+    return TargetPlayer, Model, TargetHumanoid, Distance
+end
+-- หา Tool และ RemoteEvent
 local function SetupTool(CurrentTool)
     if not CurrentTool or not CurrentTool:IsA("Tool") then
         return false
@@ -299,20 +364,96 @@ local function FinishAttack()
     Busy = false
 end
 
---==================================================
--- กด Q เพื่อโจมตี
---==================================================
+-- ค้นหาผู้เล่นที่ใกล้ที่สุด
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
 
-UserInputService.InputBegan:Connect(function(Input, Processed)
-    if Processed then
-        return
+local function GetEquippedTool()
+    local Character = Player.Character
+    if not Character then
+        return nil
     end
 
-    if Input.KeyCode ~= KEYBIND then
-        return
+    return Character:FindFirstChildOfClass("Tool")
+end
+
+local Tool = GetEquippedTool()
+
+if not Tool or not Tool:IsA("Tool") then
+    warn("กรุณาถืออาวุธก่อน")
+    return
+end
+
+
+local function GetWorkspaceModel(player)
+    if not player then
+        return nil
     end
 
-    if not Equipped or Busy then
+    -- ค้นหา Model ใน Workspace ชั้นแรกเท่านั้น
+    local model = workspace:FindFirstChild(player.Name)
+
+    if model and model:IsA("Model") then
+        return model
+    end
+
+    return nil
+end
+
+local function GetNearestPlayer()
+    local Player = Players.LocalPlayer
+    local Character = Player.Character
+    local Root = Character and Character:FindFirstChild("HumanoidRootPart")
+
+    if not Root then
+        return nil, nil
+    end
+
+    local NearestPlayer = nil
+    local NearestModel = nil
+    local NearestDistance = MAX_DISTANCE
+
+    for _, Target in ipairs(Players:GetPlayers()) do
+        if Target ~= Player then
+            local Model = GetWorkspaceModel(Target)
+
+            if Model then
+                local TargetRoot = Model:FindFirstChild("HumanoidRootPart")
+
+                if TargetRoot then
+                    local Distance = (Root.Position - TargetRoot.Position).Magnitude
+
+                    if Distance < NearestDistance then
+                        NearestPlayer = Target
+                        NearestModel = Model
+                        NearestDistance = Distance
+                    end
+                end
+            end
+        end
+    end
+
+    return NearestPlayer, NearestModel
+end
+
+-- ตั้งค่าตัวละคร
+local function OnCharacterAdded(NewCharacter)
+    Character = NewCharacter
+    Humanoid = NewCharacter:WaitForChild("Humanoid")
+
+    Animator = nil
+    AnimationTrack = nil
+    Equipped = false
+    Busy = false
+end
+
+if Player.Character then
+    task.spawn(OnCharacterAdded, Player.Character)
+end
+
+Player.CharacterAdded:Connect(OnCharacterAdded)
+local function Attack()
+    if Busy or not Equipped then
         return
     end
 
@@ -332,55 +473,194 @@ UserInputService.InputBegan:Connect(function(Input, Processed)
         return
     end
 
-    if not AnimationTrack and not LoadAnimation() then
-        return
-    end
-
     Busy = true
     LastAttack = os.clock()
 
-    -- เริ่มตรวจจับเฉพาะตอนกด Q
-    StartHitDetection()
+    AttackId += 1
+    local ThisAttack = AttackId
 
+    StopHitDetection()
+
+    local Candidates = {}
+
+    AttackActive = true
+
+    HitConnection = HitBox.Touched:Connect(function(Part)
+        if not AttackActive or ThisAttack ~= AttackId then
+            return
+        end
+
+        if not Part or Part:IsDescendantOf(Character) then
+            return
+        end
+
+        if Part:IsDescendantOf(Tool) then
+            return
+        end
+
+        local TargetPlayer, TargetModel, TargetHumanoid, Distance =
+            GetValidTargetFromPart(Part)
+
+        if not TargetPlayer then
+            return
+        end
+
+        local Existing = Candidates[TargetModel]
+
+        if not Existing or Distance < Existing.Distance then
+            Candidates[TargetModel] = {
+                Player = TargetPlayer,
+                Model = TargetModel,
+                Humanoid = TargetHumanoid,
+                Distance = Distance
+            }
+        end
+    end)
+
+    if AnimationTrack then
+        AnimationTrack:Play()
+    end
+
+    task.wait(HIT_SCAN_TIME)
+
+    if ThisAttack ~= AttackId or not AttackActive then
+        StopHitDetection()
+        Busy = false
+        return
+    end
+
+    StopHitDetection()
+
+    -- เลือกคนใกล้ที่สุดจากผู้เล่นที่โดน HitBox จริงเท่านั้น
+    local BestTarget = nil
+    local BestDistance = MAX_DISTANCE
+
+    for Model, Data in pairs(Candidates) do
+        -- ตรวจซ้ำก่อนส่งคำขอทำดาเมจ
+        local TargetHumanoid = Model:FindFirstChildOfClass("Humanoid")
+        local TargetRoot = Model:FindFirstChild("HumanoidRootPart")
+        local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+
+        if TargetHumanoid
+            and TargetHumanoid.Health > 0
+            and TargetRoot
+            and MyRoot
+            and Players:GetPlayerFromCharacter(Model) == Data.Player then
+
+            local CurrentDistance =
+                (MyRoot.Position - TargetRoot.Position).Magnitude
+
+            if CurrentDistance <= MAX_DISTANCE
+                and CurrentDistance < BestDistance then
+
+                BestDistance = CurrentDistance
+                BestTarget = Model
+            end
+        end
+    end
+
+    -- ส่งเป้าหมายเพียงคนเดียว
+    if BestTarget
+        and DamageEvent
+        and DamageEvent.Parent then
+
+        local TargetHumanoid =
+            BestTarget:FindFirstChildOfClass("Humanoid")
+
+        if TargetHumanoid and TargetHumanoid.Health > 0 then
+            DamageEvent:FireServer(BestTarget, "Head")
+
+            if HitSound and HitSound:IsA("Sound") then
+                HitSound:Stop()
+                HitSound.TimePosition = 0
+                HitSound:Play()
+            end
+        end
+    end
+
+    -- ปลดล็อกโดยไม่รอ Animation จบแบบไม่มีเงื่อนไข
+    if AnimationTrack then
+        AnimationTrack.Stopped:Wait()
+    end
+
+    if ThisAttack == AttackId then
+        StopHitDetection()
+        Busy = false
+    end
+end
+-- ตรวจจับการกด Q เพียงครั้งเดียว
+UserInputService.InputBegan:Connect(function(Input, Processed)
+    if Processed then
+        return
+    end
+
+    if Input.KeyCode ~= KEYBIND then
+        return
+    end
+
+    if Busy or not Equipped then
+        return
+    end
+
+    if os.clock() - LastAttack < COOLDOWN then
+        return
+    end
+
+    if not Character or not Humanoid or Humanoid.Health <= 0 then
+        return
+    end
+
+    if not AnimationTrack and not LoadAnimation() then
+        return
+    end
+    local LocalScript = Tool:FindFirstChild("LocalScript")
+    local Event = LocalScript and LocalScript:FindFirstChild("Damage") 
+    if not Event or not Event.Parent then
+        if not SetupTool() then
+            return
+        end
+    end
+
+    -- ล็อกการโจมตี
+    Busy = true
+    LastAttack = os.clock()
+      
+    -- เล่นอนิเมชัน
     AnimationTrack:Play()
+    task.spawn(Attack)
+    -- เรียก RemoteEvent ทันทีพร้อมกับอนิเมชัน
+local Target, targetModel = GetNearestPlayer()
+local Tool = GetEquippedTool()
+local Target = GetNearestPlayer()
+local NameTool =  GetEquippedTool()
 
+      
+    -- ปลดล็อกเมื่ออนิเมชันจบ
     local CurrentTrack = AnimationTrack
 
     task.spawn(function()
-        CurrentTrack.Stopped:Wait()
+        CurrentTrack.Ended:Wait()
 
         if AnimationTrack == CurrentTrack then
-            FinishAttack()
+            Busy = false
         end
     end)
 end)
 
---==================================================
--- เชื่อมต่อ Tool เพียงครั้งเดียว
---==================================================
-
+-- ตรวจจับการถือและเก็บ Tool
 local function BindTool(ToolObject)
     if not ToolObject:IsA("Tool") then
         return
     end
 
-    if BoundTools[ToolObject] then
-        return
-    end
-
-    BoundTools[ToolObject] = true
-
     ToolObject.Equipped:Connect(function()
-        if not Character or ToolObject.Parent ~= Character then
+        if ToolObject.Parent ~= Character then
             return
         end
 
         Tool = ToolObject
         Equipped = true
-
-        if not LoadAnimation() then
-            Equipped = false
-        end
+        LoadAnimation()
     end)
 
     ToolObject.Unequipped:Connect(function()
@@ -389,101 +669,30 @@ local function BindTool(ToolObject)
         end
 
         Equipped = false
-        FinishAttack()
+        Busy = false
 
         if AnimationTrack then
             AnimationTrack:Stop()
         end
     end)
-
-    ToolObject.Destroying:Connect(function()
-        BoundTools[ToolObject] = nil
-
-        if Tool == ToolObject then
-            FinishAttack()
-
-            Tool = nil
-            DamageEvent = nil
-            Animation = nil
-            HitBox = nil
-            HitSound = nil
-            Equipped = false
-        end
-    end)
 end
 
---==================================================
--- ตั้งค่าตัวละคร
---==================================================
-
-local function OnCharacterAdded(NewCharacter)
-    StopHitDetection()
-
-    if CharacterChildConnection then
-        CharacterChildConnection:Disconnect()
-        CharacterChildConnection = nil
-    end
-
-    if AnimationTrack then
-        AnimationTrack:Stop()
-        AnimationTrack:Destroy()
-        AnimationTrack = nil
-    end
-
-    Character = NewCharacter
-    Humanoid = NewCharacter:WaitForChild("Humanoid")
-
-    Animator = nil
-    Tool = nil
-    DamageEvent = nil
-    Animation = nil
-    HitBox = nil
-    HitSound = nil
-
-    Equipped = false
-    Busy = false
-    AttackHit = false
-    LastAttack = 0
-
+local function WatchCharacter(NewCharacter)
     for _, Object in ipairs(NewCharacter:GetChildren()) do
         if Object:IsA("Tool") then
             BindTool(Object)
         end
     end
 
-    CharacterChildConnection =
-        NewCharacter.ChildAdded:Connect(function(Object)
-            if Object:IsA("Tool") then
-                BindTool(Object)
-            end
-        end)
-
-    Humanoid.Died:Connect(function()
-        Equipped = false
-        FinishAttack()
+    NewCharacter.ChildAdded:Connect(function(Object)
+        if Object:IsA("Tool") then
+            BindTool(Object)
+        end
     end)
 end
 
---==================================================
--- ตรวจจับ Tool ใน Backpack
---==================================================
-
-local Backpack = SetupTool()
-
-for _, Object in ipairs(Backpack:GetChildren()) do
-    if Object:IsA("Tool") then
-        BindTool(Object)
-    end
-end
-
-Backpack.ChildAdded:Connect(function(Object)
-    if Object:IsA("Tool") then
-        BindTool(Object)
-    end
-end)
-
-Player.CharacterAdded:Connect(OnCharacterAdded)
+Player.CharacterAdded:Connect(WatchCharacter)
 
 if Player.Character then
-    task.spawn(OnCharacterAdded, Player.Character)
+    WatchCharacter(Player.Character)
 end
