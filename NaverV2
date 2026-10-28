@@ -1,14 +1,16 @@
+
 --==================================================
 -- Q SLASH SYSTEM | LocalScript
 --==================================================
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+
 local Player = Players.LocalPlayer
 
 -- CONFIG
 local MAX_DISTANCE = 6.5
-local COOLDOWN = 0.7
+local COOLDOWN = 0.5
 local KEYBIND = Enum.KeyCode.Q
 
 -- STATE
@@ -17,55 +19,95 @@ local Humanoid
 local Animator
 local AnimationTrack
 
+local Tool
+local DamageEvent
+local Animation
+local HitBox
+local HitSound
+
 local Equipped = false
 local Busy = false
-local LastAttack = 0
--- HIT SOUND SYSTEM
 local AttackActive = false
 local AttackHit = false
-local HitConnection = nil
--- TOOL REFERENCES
-local Tool
-local Event
-local Animation
+local LastAttack = 0
 
--- หา Tool และ RemoteEvent
-local function SetupTool()
-    local CurrentCharacter = Player.Character
-    if not CurrentCharacter then
+local HitConnection
+local BoundTools = {}
+local CharacterChildConnection
+
+--==================================================
+-- ตั้งค่า Tool
+--==================================================
+
+local function SetupTool(CurrentTool)
+    if not CurrentTool or not CurrentTool:IsA("Tool") then
         return false
     end
 
-    Tool = CurrentCharacter:FindFirstChildOfClass("Tool")
-
-    if not Tool then
+    local Handle = CurrentTool:FindFirstChild("Handle")
+    if not Handle then
+        warn("Q Slash: ไม่พบ Handle")
         return false
     end
 
-    local LocalScript = Tool:FindFirstChild("LocalScript")
-    local Event = LocalScript and LocalScript:FindFirstChild("Damage")
-    Animation = Tool:FindFirstChild("RightSlashx", true)
+    local CurrentHitBox = Handle:FindFirstChild("HitBox")
+    local CurrentHitSound = Handle:FindFirstChild("Hit")
 
-    if not Event or not Event:IsA("RemoteEvent") then
-        warn("ไม่พบ RemoteEvent: Damage")
+    if not CurrentHitBox or not CurrentHitBox:IsA("BasePart") then
+        warn("Q Slash: ไม่พบ Handle.HitBox")
         return false
     end
 
-    if not Animation or not Animation:IsA("Animation") then
-        warn("ไม่พบ Animation: RightSlashx")
+    if not CurrentHitSound or not CurrentHitSound:IsA("Sound") then
+        warn("Q Slash: ไม่พบ Handle.Hit")
         return false
     end
+
+    -- หา RemoteEvent
+    local CurrentEvent = CurrentTool:FindFirstChild("Damage", true)
+
+    if not CurrentEvent then
+        local LocalScriptObject =
+            CurrentTool:FindFirstChild("LocalScript")
+
+        CurrentEvent = LocalScriptObject
+            and LocalScriptObject:FindFirstChild("Damage")
+    end
+
+    if not CurrentEvent or not CurrentEvent:IsA("RemoteEvent") then
+        warn("Q Slash: ไม่พบ RemoteEvent Damage")
+        return false
+    end
+
+    -- หา Animation
+    local CurrentAnimation =
+        CurrentTool:FindFirstChild("RightSlashx", true)
+
+    if not CurrentAnimation
+        or not CurrentAnimation:IsA("Animation") then
+        warn("Q Slash: ไม่พบ Animation RightSlashx")
+        return false
+    end
+
+    Tool = CurrentTool
+    DamageEvent = CurrentEvent
+    Animation = CurrentAnimation
+    HitBox = CurrentHitBox
+    HitSound = CurrentHitSound
 
     return true
 end
 
--- โหลดอนิเมชัน
+--==================================================
+-- โหลด Animation
+--==================================================
+
 local function LoadAnimation()
     if not Character or not Humanoid or Humanoid.Health <= 0 then
         return false
     end
 
-    if not SetupTool() then
+    if not SetupTool(Tool) then
         return false
     end
 
@@ -87,7 +129,7 @@ local function LoadAnimation()
     end)
 
     if not Success then
-        warn("โหลดอนิเมชันไม่สำเร็จ:", Result)
+        warn("Q Slash: โหลด Animation ไม่สำเร็จ:", Result)
         return false
     end
 
@@ -95,123 +137,104 @@ local function LoadAnimation()
     return true
 end
 
--- ค้นหาผู้เล่นที่ใกล้ที่สุด
-local Players = game:GetService("Players")
-local Player = Players.LocalPlayer
+--==================================================
+-- หาผู้เล่นที่ HitBox สัมผัสจริง
+--==================================================
 
-local function GetEquippedTool()
-    local Character = Player.Character
-    if not Character then
-        return nil
+local function GetTouchedPlayer(Part)
+    if not Part or not Part:IsA("BasePart") then
+        return nil, nil, nil
     end
 
-    return Character:FindFirstChildOfClass("Tool")
-end
-
-local Tool = GetEquippedTool()
-
-if not Tool or not Tool:IsA("Tool") then
-    warn("กรุณาถืออาวุธก่อน")
-    return
-end
-local Tool = GetEquippedTool()
-
-local function GetWorkspaceModel(player)
-    if not player then
-        return nil
+    if not Character or Part:IsDescendantOf(Character) then
+        return nil, nil, nil
     end
 
-    -- ค้นหา Model ใน Workspace ชั้นแรกเท่านั้น
-    local model = workspace:FindFirstChild(player.Name)
-
-    if model and model:IsA("Model") then
-        return model
+    if Tool and Part:IsDescendantOf(Tool) then
+        return nil, nil, nil
     end
 
-    return nil
-end
+    -- รองรับ Part ที่อยู่ใน Accessory ของตัวละคร
+    local Current = Part
+    local TargetPlayer
+    local TargetModel
 
-local function GetNearestPlayer()
-    local Player = Players.LocalPlayer
-    local Character = Player.Character
-    local Root = Character and Character:FindFirstChild("HumanoidRootPart")
+    while Current and Current ~= workspace do
+        if Current:IsA("Model") then
+            local FoundPlayer = Players:GetPlayerFromCharacter(Current)
 
-    if not Root then
-        return nil, nil
-    end
-
-    local NearestPlayer = nil
-    local NearestModel = nil
-    local NearestDistance = MAX_DISTANCE
-
-    for _, Target in ipairs(Players:GetPlayers()) do
-        if Target ~= Player then
-            local Model = GetWorkspaceModel(Target)
-
-            if Model then
-                local TargetRoot = Model:FindFirstChild("HumanoidRootPart")
-
-                if TargetRoot then
-                    local Distance = (Root.Position - TargetRoot.Position).Magnitude
-
-                    if Distance < NearestDistance then
-                        NearestPlayer = Target
-                        NearestModel = Model
-                        NearestDistance = Distance
-                    end
-                end
+            if FoundPlayer then
+                TargetPlayer = FoundPlayer
+                TargetModel = Current
+                break
             end
         end
+
+        Current = Current.Parent
     end
 
-    return NearestPlayer, NearestModel
+    if not TargetPlayer or not TargetModel then
+        return nil, nil, nil
+    end
+
+    if TargetPlayer == Player then
+        return nil, nil, nil
+    end
+
+    local TargetHumanoid =
+        TargetModel:FindFirstChildOfClass("Humanoid")
+
+    local TargetRoot =
+        TargetModel:FindFirstChild("HumanoidRootPart")
+
+    local MyRoot =
+        Character:FindFirstChild("HumanoidRootPart")
+
+    -- ต้องยังมีชีวิตอยู่
+    if not TargetHumanoid
+        or TargetHumanoid.Health <= 0
+        or not TargetRoot
+        or not MyRoot then
+        return nil, nil, nil
+    end
+
+    local Distance =
+        (MyRoot.Position - TargetRoot.Position).Magnitude
+
+    if Distance > MAX_DISTANCE then
+        return nil, nil, nil
+    end
+
+    return TargetPlayer, TargetModel, TargetHumanoid
 end
 
--- ตั้งค่าตัวละคร
-local function OnCharacterAdded(NewCharacter)
-    Character = NewCharacter
-    Humanoid = NewCharacter:WaitForChild("Humanoid")
+--==================================================
+-- หยุดตรวจจับ HitBox
+--==================================================
 
-    Animator = nil
-    AnimationTrack = nil
-    Equipped = false
-    Busy = false
-end
-
-if Player.Character then
-    task.spawn(OnCharacterAdded, Player.Character)
-end
-
-Player.CharacterAdded:Connect(OnCharacterAdded)
-
-
--- HITBOX SOUND SYSTEM
-local function StartHitSound(Tool)
-    if not Tool then
-        return
-    end
-
-    local Handle = Tool:FindFirstChild("Handle")
-    if not Handle then
-        return
-    end
-
-    local HitBox = Handle:FindFirstChild("HitBox")
-    local HitSound = Handle:FindFirstChild("Hit")
-
-    if not HitBox or not HitBox:IsA("BasePart") then
-        warn("ไม่พบ HitBox")
-        return
-    end
-
-    if not HitSound or not HitSound:IsA("Sound") then
-        warn("ไม่พบเสียง Hit")
-        return
-    end
+local function StopHitDetection()
+    AttackActive = false
 
     if HitConnection then
         HitConnection:Disconnect()
         HitConnection = nil
+    end
+end
+
+--==================================================
+-- เริ่มตรวจจับ HitBox
+--==================================================
+
+local function StartHitDetection()
+    StopHitDetection()
+
+    if not HitBox or not HitBox:IsA("BasePart") then
+        return
+    end
+
+    if not HitBox.CanTouch then
+        warn("Q Slash: กรุณาเปิด HitBox.CanTouch")
+        return
     end
 
     AttackActive = true
@@ -222,43 +245,64 @@ local function StartHitSound(Tool)
             return
         end
 
-        if not Part or Part:IsDescendantOf(Character) then
+        local TargetPlayer, TargetModel, TargetHumanoid =
+            GetTouchedPlayer(Part)
+
+        if not TargetPlayer or not TargetModel or not TargetHumanoid then
             return
         end
 
-        if Part:IsDescendantOf(Tool) then
+        -- ตรวจเลือดซ้ำก่อนเลือกเป้าหมาย
+        if TargetHumanoid.Health <= 0 then
             return
         end
 
-        local Model = Part:FindFirstAncestorOfClass("Model")
-        local HumanoidTarget = Model
-            and Model:FindFirstChildOfClass("Humanoid")
-
-        -- เลือกเสียงตามสิ่งที่สัมผัส
-        local SoundToPlay
-
-        if HumanoidTarget and HumanoidTarget.Health > 0 then
-            SoundToPlay = HitSound
-        end
-
+        -- เลือกคนแรกที่ HitBox สัมผัสในรอบนี้
         AttackHit = true
+        AttackActive = false
 
-        SoundToPlay:Stop()
-        SoundToPlay.TimePosition = 0
-        SoundToPlay:Play()
+        if HitConnection then
+            HitConnection:Disconnect()
+            HitConnection = nil
+        end
+
+        -- เล่นเสียงเมื่อสัมผัสเป้าหมาย
+        if HitSound then
+            HitSound:Stop()
+            HitSound.TimePosition = 0
+            HitSound:Play()
+        end
+
+        -- ตรวจสอบเป้าหมายอีกครั้ง
+        if TargetPlayer.Parent ~= Players
+            or not TargetModel.Parent
+            or TargetHumanoid.Health <= 0 then
+            return
+        end
+
+        if not DamageEvent
+            or not DamageEvent:IsA("RemoteEvent") then
+            warn("Q Slash: DamageEvent ไม่พร้อมใช้งาน")
+            return
+        end
+
+        DamageEvent:FireServer(TargetModel, "Head")
     end)
 end
 
-local function StopHitSound()
-    AttackActive = false
+--==================================================
+-- จบการโจมตี
+--==================================================
 
-    if HitConnection then
-        HitConnection:Disconnect()
-        HitConnection = nil
-    end
+local function FinishAttack()
+    StopHitDetection()
+    Busy = false
 end
 
--- ตรวจจับการกด Q เพียงครั้งเดียว
+--==================================================
+-- กด Q เพื่อโจมตี
+--==================================================
+
 UserInputService.InputBegan:Connect(function(Input, Processed)
     if Processed then
         return
@@ -268,7 +312,7 @@ UserInputService.InputBegan:Connect(function(Input, Processed)
         return
     end
 
-    if Busy or not Equipped then
+    if not Equipped or Busy then
         return
     end
 
@@ -280,67 +324,63 @@ UserInputService.InputBegan:Connect(function(Input, Processed)
         return
     end
 
+    if not Tool or Tool.Parent ~= Character then
+        return
+    end
+
+    if not SetupTool(Tool) then
+        return
+    end
+
     if not AnimationTrack and not LoadAnimation() then
         return
     end
-    local LocalScript = Tool:FindFirstChild("LocalScript")
-    local Event = LocalScript and LocalScript:FindFirstChild("Damage") 
-    if not Event or not Event.Parent then
-        if not SetupTool() then
-            return
-        end
-    end
 
-
-    -- ล็อกการโจมตี
     Busy = true
     LastAttack = os.clock()
 
-    local v1 = Humanoid
+    -- เริ่มตรวจจับเฉพาะตอนกด Q
+    StartHitDetection()
 
-    -- เรียก RemoteEvent ทันทีพร้อมกับอนิเมชัน
-------------------
-local Target, TargetModel = GetNearestPlayer()
-
-local Tool = GetEquippedTool()
-local NameTool =  GetEquippedTool()
-local Sound = StartHitSound()
-    -- เล่นอนิเมชัน
     AnimationTrack:Play()
-    StartHitSound(Tool)
--------------------
-local Event = NameTool:FindFirstChild("LocalScript"):FindFirstChild("Damage")
-Event:FireServer(
-    Target and TargetModel  ,
-    "Head"
-)
-      
-    -- ปลดล็อกเมื่ออนิเมชันจบ
+
     local CurrentTrack = AnimationTrack
 
     task.spawn(function()
-        CurrentTrack.Ended:Wait()
-        StopHitSound()
+        CurrentTrack.Stopped:Wait()
+
         if AnimationTrack == CurrentTrack then
-            Busy = false
+            FinishAttack()
         end
     end)
 end)
 
--- ตรวจจับการถือและเก็บ Tool
+--==================================================
+-- เชื่อมต่อ Tool เพียงครั้งเดียว
+--==================================================
+
 local function BindTool(ToolObject)
     if not ToolObject:IsA("Tool") then
         return
     end
 
+    if BoundTools[ToolObject] then
+        return
+    end
+
+    BoundTools[ToolObject] = true
+
     ToolObject.Equipped:Connect(function()
-        if ToolObject.Parent ~= Character then
+        if not Character or ToolObject.Parent ~= Character then
             return
         end
 
         Tool = ToolObject
         Equipped = true
-        LoadAnimation()
+
+        if not LoadAnimation() then
+            Equipped = false
+        end
     end)
 
     ToolObject.Unequipped:Connect(function()
@@ -349,30 +389,101 @@ local function BindTool(ToolObject)
         end
 
         Equipped = false
-        Busy = false
+        FinishAttack()
 
         if AnimationTrack then
             AnimationTrack:Stop()
         end
     end)
+
+    ToolObject.Destroying:Connect(function()
+        BoundTools[ToolObject] = nil
+
+        if Tool == ToolObject then
+            FinishAttack()
+
+            Tool = nil
+            DamageEvent = nil
+            Animation = nil
+            HitBox = nil
+            HitSound = nil
+            Equipped = false
+        end
+    end)
 end
 
-local function WatchCharacter(NewCharacter)
+--==================================================
+-- ตั้งค่าตัวละคร
+--==================================================
+
+local function OnCharacterAdded(NewCharacter)
+    StopHitDetection()
+
+    if CharacterChildConnection then
+        CharacterChildConnection:Disconnect()
+        CharacterChildConnection = nil
+    end
+
+    if AnimationTrack then
+        AnimationTrack:Stop()
+        AnimationTrack:Destroy()
+        AnimationTrack = nil
+    end
+
+    Character = NewCharacter
+    Humanoid = NewCharacter:WaitForChild("Humanoid")
+
+    Animator = nil
+    Tool = nil
+    DamageEvent = nil
+    Animation = nil
+    HitBox = nil
+    HitSound = nil
+
+    Equipped = false
+    Busy = false
+    AttackHit = false
+    LastAttack = 0
+
     for _, Object in ipairs(NewCharacter:GetChildren()) do
         if Object:IsA("Tool") then
             BindTool(Object)
         end
     end
 
-    NewCharacter.ChildAdded:Connect(function(Object)
-        if Object:IsA("Tool") then
-            BindTool(Object)
-        end
+    CharacterChildConnection =
+        NewCharacter.ChildAdded:Connect(function(Object)
+            if Object:IsA("Tool") then
+                BindTool(Object)
+            end
+        end)
+
+    Humanoid.Died:Connect(function()
+        Equipped = false
+        FinishAttack()
     end)
 end
 
-Player.CharacterAdded:Connect(WatchCharacter)
+--==================================================
+-- ตรวจจับ Tool ใน Backpack
+--==================================================
+
+local Backpack = SetupTool()
+
+for _, Object in ipairs(Backpack:GetChildren()) do
+    if Object:IsA("Tool") then
+        BindTool(Object)
+    end
+end
+
+Backpack.ChildAdded:Connect(function(Object)
+    if Object:IsA("Tool") then
+        BindTool(Object)
+    end
+end)
+
+Player.CharacterAdded:Connect(OnCharacterAdded)
 
 if Player.Character then
-    WatchCharacter(Player.Character)
+    task.spawn(OnCharacterAdded, Player.Character)
 end
