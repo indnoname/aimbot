@@ -1,21 +1,26 @@
+
+--==================================================
+-- BIG HITBOX SYSTEM | Q TOGGLE
+--==================================================
+
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- CONFIG
-
-local KEYBIND = Enum.KeyCode.Q
-local BIG_SIZE = Vector3.new(3, 7, 3)
+local KEYBIND = Enum.KeyCode.R
+local HITBOX_SIZE = Vector3.new(5,7,5)
+local MAX_DISTANCE = 30
 
 -- STATE
 local Enabled = false
-local TargetCharacter
-local CloneHead
-local OriginalSize
-local OriginalTransparency
-MAX_DISTANCE = 20
+local CurrentTarget = nil
+local CurrentHitbox = nil
+
+--==================================================
+-- GET NEAREST PLAYER
+--==================================================
 
 local function GetNearestPlayer()
 
@@ -57,102 +62,126 @@ local function GetNearestPlayer()
     return NearestPlayer
 end
 
-local function GetName()
-    local Target = GetNearestPlayer()
-    if Target then
-        return Target
-    end
-    return nil
-end    
-local Enabled = false
-local TARGET_PLAYER =  GetName()
+--==================================================
+-- CREATE HITBOX
+--==================================================
 
--- FIND PLAYER
-local function GetTarget()
-    local Target = GetName()
-    if not Target or Target == LocalPlayer then
-        return nil
-    end
-    return Target.Character
-end
-
--- ENABLE
-local function Enable()
-    local Character = GetTarget()
-    if not Character then
-        warn("[HEAD] Player not found")
-        return
-    end
+local function CreateHitbox(Character)
 
     local Head = Character:FindFirstChild("Head")
     if not Head then return end
 
-    TargetCharacter = Character
+    local Old = Head:FindFirstChild("BigHitbox")
 
-    OriginalSize = Head.Size
-    OriginalTransparency = Head.Transparency
+    if Old then
+        Old:Destroy()
+    end
 
-    CloneHead = Head:Clone()
-    CloneHead.Name = "CloneHead"
-    CloneHead.Anchored = true
-    CloneHead.CanCollide = false
-    CloneHead.CanTouch = false
-    CloneHead.CanQuery = false
-    CloneHead.Parent = Character
+    local Part = Head:Clone()
+    Part.Name = "HIT"
+    Part.Size = Vector3.new(1,1,1)
+    Part.Transparency = 0
+     
+    Part.Anchored = false
+    Part.CanCollide = false
+    Part.CanTouch = false
+    Part.CanQuery = true
+    Part.Massless = true
+      
+    Part.CFrame = Head.CFrame
+    Part.Parent = GetNearestPlayer()
 
-    Head.Size = BIG_SIZE
+    local Weld = Instance.new("WeldConstraint")
+    Weld.Part0 = Head
+    Weld.Part1 = Part
+    Weld.Parent = Part
+
+    CurrentHitbox = Part
+    CurrentTarget = Character
     Head.Transparency = 1
-
-    Enabled = true
-
-    print("[HEAD] เปิดแล้ว | " .. TARGET_PLAYER)
+    Head.Size = HITBOX_SIZE
+    Head.OriginalSize.Value = HITBOX_SIZE
 end
 
--- DISABLE
-local function Disable()
-    if not TargetCharacter then return end
+--==================================================
+-- REMOVE HITBOX
+--==================================================
 
-    local Head = TargetCharacter:FindFirstChild("Head")
+local function RemoveHitbox()
 
-    if Head then
-        Head.Size = OriginalSize
-        Head.Transparency = OriginalTransparency
+    if CurrentHitbox then
+        CurrentHitbox:Destroy()
     end
 
-    if CloneHead then
-        CloneHead:Destroy()
-        CloneHead = nil
-    end
-
-    Enabled = false
-    TargetCharacter = nil
-
-    print("[HEAD] ปิดแล้ว | " .. TARGET_PLAYER)
+    CurrentHitbox = nil
+    CurrentTarget = nil
 end
 
--- Q TOGGLE
-UIS.InputBegan:Connect(function(Input, Processed)
-    if Processed then return end
+--==================================================
+-- UPDATE SYSTEM
+--==================================================
 
-    if Input.KeyCode == KEYBIND then
+task.spawn(function()
+
+    while true do
+
+        task.wait(0.2)
+
         if Enabled then
-            Disable()
-        else
-            Enable()
+
+            local Target = GetNearestPlayer()
+
+            if Target ~= CurrentTarget then
+
+                RemoveHitbox()
+
+                if Target then
+                    CreateHitbox(Target)
+                end
+
+            elseif Target and not CurrentHitbox then
+
+                CreateHitbox(Target)
+            end
         end
     end
 end)
 
--- FOLLOW CLONE HEAD
-RunService.RenderStepped:Connect(function()
-    if not Enabled then return end
+--==================================================
+-- Q TOGGLE
+--==================================================
 
-    local Head = TargetCharacter
-        and TargetCharacter:FindFirstChild("Head")
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
 
-    if Head and CloneHead and CloneHead.Parent then
-        CloneHead.CFrame = Head.CFrame
+    if GameProcessed then return end
+
+    if Input.KeyCode == KEYBIND then
+
+        Enabled = not Enabled
+
+        if Enabled then
+
+            local Target = GetNearestPlayer()
+
+            if Target then
+                CreateHitbox(Target)
+            end
+
+            print("[BigHitbox] ENABLED")
+
+        else
+
+            RemoveHitbox()
+
+            print("[BigHitbox] DISABLED")
+        end
     end
 end)
 
-print("[HEAD] System Loaded | Press Q")
+--==================================================
+-- CLEANUP
+--==================================================
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    RemoveHitbox()
+end)
