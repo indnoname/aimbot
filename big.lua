@@ -65,12 +65,17 @@ end
 --==================================================
 -- CREATE HITBOX
 --==================================================
+
 local function CreateHitbox(Character)
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
     if not Humanoid or Humanoid.Health <= 0 then return end
+
     local Head = Character:FindFirstChild("Head")
+    if not Head then return end
+
     local Old = Character:FindFirstChild("HIT")
     if Old then Old:Destroy() end
+
     local Part = Head:Clone()
     Part.Name = "HIT"
     Part.Size = Vector3.new(1, 1, 1)
@@ -84,30 +89,59 @@ local function CreateHitbox(Character)
     Part.Material = Head.Material
     Part.CFrame = Head.CFrame
     Part.Parent = Character
+
     local Weld = Instance.new("WeldConstraint")
     Weld.Part0 = Head
     Weld.Part1 = Part
     Weld.Parent = Part
+
     CurrentHitbox = Part
     CurrentTarget = Character
+
     Head.Transparency = 1
     Head.Size = HITBOX_SIZE
-    Head.OriginalSize.Value = HITBOX_SIZE
-    Humanoid.HealthChanged:Connect(function(Health)
-        if Health <= 0 then
-            if Head and Head.Parent then
-                Head.Size = Vector3.new(1, 1, 1)
-                Head.Transparency = 0
-                Head.OriginalSize.Value = Vector3.new(1, 1, 1)
-            end
 
-            if Part and Part.Parent then
-                Part:Destroy()
+    if Head:FindFirstChild("OriginalSize") then
+        Head.OriginalSize.Value = HITBOX_SIZE
+    end
+
+    -- ตรวจจับเลือด
+    local Connection
+    Connection = Humanoid.HealthChanged:Connect(function(Health)
+        if Health > 0 then return end
+
+        Connection:Disconnect()
+
+        -- คืนค่า Head
+        if Head and Head.Parent then
+            Head.Size = Vector3.new(1, 1, 1)
+            Head.Transparency = 0
+
+            local OriginalSize = Head:FindFirstChild("OriginalSize")
+            if OriginalSize then
+                OriginalSize.Value = Vector3.new(1, 1, 1)
             end
-            if CurrentTarget == Character then
-                CurrentHitbox = nil
-                CurrentTarget = nil
+        end
+
+        if Part and Part.Parent then
+            Part:Destroy()
+        end
+
+        for _, Object in ipairs(Character:GetDescendants()) do
+            if Object:IsA("ParticleEmitter")
+            or Object:IsA("Trail")
+            or Object:IsA("Beam")
+            or Object:IsA("Fire")
+            or Object:IsA("Smoke")
+            or Object:IsA("Sparkles") then
+                Object:Destroy()
             end
+        end
+
+        -- ล้างตัวแปร
+        if CurrentTarget == Character then
+            CurrentHitbox = nil
+            CurrentTarget = nil
         end
     end)
 end
