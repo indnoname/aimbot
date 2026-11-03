@@ -100,6 +100,7 @@ local function CreateHitbox(Character)
 
     Head.Transparency = 1
     Head.Size = HITBOX_SIZE
+    Head.CanCollide = false
 
     if Head:FindFirstChild("OriginalSize") then
         Head.OriginalSize.Value = HITBOX_SIZE
@@ -111,11 +112,10 @@ local function CreateHitbox(Character)
         if Health > 0 then return end
 
         Connection:Disconnect()
-
-        -- คืนค่า Head
         if Head and Head.Parent then
             Head.Size = Vector3.new(1, 1, 1)
             Head.Transparency = 0
+            Head.CanCollide = false
 
             local OriginalSize = Head:FindFirstChild("OriginalSize")
             if OriginalSize then
