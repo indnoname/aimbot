@@ -65,44 +65,73 @@ end
 --==================================================
 -- CREATE HITBOX
 --==================================================
-
 local function CreateHitbox(Character)
-
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Humanoid or Humanoid.Health <= 0 then return end
     local Head = Character:FindFirstChild("Head")
     if not Head then return end
-
-    local Old = Head:FindFirstChild("BigHitbox")
-
-    if Old then
-        Old:Destroy()
+    if not SavedData[Character] then
+        SavedData[Character] = {
+            Size = Head.Size,
+            Transparency = Head.Transparency,
+            Color = Head.Color,
+            Material = Head.Material,
+            OriginalSize = Head:FindFirstChild("OriginalSize")
+                and Head.OriginalSize.Value
+        }
     end
-
+    local Old = Character:FindFirstChild("HIT")
+    if Old then Old:Destroy() end
     local Part = Head:Clone()
     Part.Name = "HIT"
-    Part.Size = Vector3.new(1,1,1)
+    Part.Size = Vector3.new(1, 1, 1)
     Part.Transparency = 0
-     
     Part.Anchored = false
     Part.CanCollide = false
     Part.CanTouch = false
     Part.CanQuery = true
     Part.Massless = true
     Part.Color = Head.Color
+    Part.Material = Head.Material
     Part.CFrame = Head.CFrame
-    Part.Parent = GetNearestPlayer()
-
+    Part.Parent = Character
     local Weld = Instance.new("WeldConstraint")
     Weld.Part0 = Head
     Weld.Part1 = Part
     Weld.Parent = Part
-
     CurrentHitbox = Part
     CurrentTarget = Character
     Head.Transparency = 1
     Head.Size = HITBOX_SIZE
-    Head.OriginalSize.Value = HITBOX_SIZE
-end
+    if Head:FindFirstChild("OriginalSize") then
+        Head.OriginalSize.Value = HITBOX_SIZE
+    end
+    Humanoid.Died:Once(function()
+        local Data = SavedData[Character]
+        if not Data then return end
 
+        -- คืนค่า Head
+        if Head and Head.Parent then
+            Head.Size = Data.Size
+            Head.Transparency = Data.Transparency
+            Head.Color = Data.Color
+            Head.Material = Data.Material
+
+            if Data.OriginalSize ~= nil then
+                local OriginalSize = Head:FindFirstChild("OriginalSize")
+                if OriginalSize then
+                    OriginalSize.Value = Data.OriginalSize
+                end
+            end
+        end
+        if Part and Part.Parent then
+            Part:Destroy()
+        end
+        CurrentHitbox = nil
+        CurrentTarget = nil
+        SavedData[Character] = nil
+    end)
+end
 --==================================================
 -- REMOVE HITBOX
 --==================================================
