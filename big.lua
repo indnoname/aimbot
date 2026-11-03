@@ -87,7 +87,7 @@ local function CreateHitbox(Character)
     Part.CanTouch = false
     Part.CanQuery = true
     Part.Massless = true
-      
+    Part.Color = Head.Color
     Part.CFrame = Head.CFrame
     Part.Parent = GetNearestPlayer()
 
