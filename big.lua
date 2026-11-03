@@ -69,17 +69,6 @@ local function CreateHitbox(Character)
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
     if not Humanoid or Humanoid.Health <= 0 then return end
     local Head = Character:FindFirstChild("Head")
-    if not Head then return end
-    if not SavedData[Character] then
-        SavedData[Character] = {
-            Size = Head.Size,
-            Transparency = Head.Transparency,
-            Color = Head.Color,
-            Material = Head.Material,
-            OriginalSize = Head:FindFirstChild("OriginalSize")
-                and Head.OriginalSize.Value
-        }
-    end
     local Old = Character:FindFirstChild("HIT")
     if Old then Old:Destroy() end
     local Part = Head:Clone()
@@ -103,33 +92,22 @@ local function CreateHitbox(Character)
     CurrentTarget = Character
     Head.Transparency = 1
     Head.Size = HITBOX_SIZE
-    if Head:FindFirstChild("OriginalSize") then
-        Head.OriginalSize.Value = HITBOX_SIZE
-    end
-    Humanoid.Died:Once(function()
-        local Data = SavedData[Character]
-        if not Data then return end
+    Head.OriginalSize.Value = HITBOX_SIZE
+    Humanoid.HealthChanged:Connect(function(Health)
+        if Health <= 0 then
+            if Head and Head.Parent then
+                Head.Size = Vector3.new(1, 1, 1)
+                Head.Transparency = 0
+            end
 
-        -- คืนค่า Head
-        if Head and Head.Parent then
-            Head.Size = Data.Size
-            Head.Transparency = Data.Transparency
-            Head.Color = Data.Color
-            Head.Material = Data.Material
-
-            if Data.OriginalSize ~= nil then
-                local OriginalSize = Head:FindFirstChild("OriginalSize")
-                if OriginalSize then
-                    OriginalSize.Value = Data.OriginalSize
-                end
+            if Part and Part.Parent then
+                Part:Destroy()
+            end
+            if CurrentTarget == Character then
+                CurrentHitbox = nil
+                CurrentTarget = nil
             end
         end
-        if Part and Part.Parent then
-            Part:Destroy()
-        end
-        CurrentHitbox = nil
-        CurrentTarget = nil
-        SavedData[Character] = nil
     end)
 end
 --==================================================
