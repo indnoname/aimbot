@@ -9,7 +9,7 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 -- CONFIG
-local KEYBIND = Enum.KeyCode.R
+local KEYBIND = Enum.KeyCode.P
 local HITBOX_SIZE = Vector3.new(3,5,3)
 local MAX_DISTANCE = 30
 
