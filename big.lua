@@ -98,6 +98,7 @@ local function CreateHitbox(Character)
             if Head and Head.Parent then
                 Head.Size = Vector3.new(1, 1, 1)
                 Head.Transparency = 0
+                Head.OriginalSize.Value = Vector3.new(1, 1, 1)
             end
 
             if Part and Part.Parent then
