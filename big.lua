@@ -10,7 +10,7 @@ local LocalPlayer = Players.LocalPlayer
 
 -- CONFIG
 local KEYBIND = Enum.KeyCode.P
-local HITBOX_SIZE = Vector3.new(3,5,3)
+local HITBOX_SIZE = Vector3.new(5,5.5,5)
 local MAX_DISTANCE = 30
 
 -- STATE
