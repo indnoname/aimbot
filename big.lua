@@ -67,9 +67,6 @@ end
 --==================================================
 
 local function CreateHitbox(Character)
-    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    if not Humanoid or Humanoid.Health <= 0 then return end
-
     local Head = Character:FindFirstChild("Head")
     if not Head then return end
 
