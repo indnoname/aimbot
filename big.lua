@@ -65,28 +65,33 @@ end
 --==================================================
 -- CREATE HITBOX
 --==================================================
-
 local function CreateHitbox(Character)
-    local Head = Character:FindFirstChild("Head")
-    if not Head then return end
+    if not Character then return end
 
+    local Head = Character:FindFirstChild("Head")
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+
+    if not Head or not Humanoid then return end
+    if Humanoid.Health <= 0 then return end
+
+    -- ลบ Hitbox เก่า
     local Old = Character:FindFirstChild("HIT")
     if Old then Old:Destroy() end
 
+    -- สร้าง Hitbox
     local Part = Head:Clone()
     Part.Name = "HIT"
     Part.Size = Vector3.new(1, 1, 1)
-    Part.Transparency = 0
+    Part.Transparency = 1
     Part.Anchored = false
     Part.CanCollide = false
     Part.CanTouch = false
     Part.CanQuery = true
     Part.Massless = true
-    Part.Color = Head.Color
-    Part.Material = Head.Material
     Part.CFrame = Head.CFrame
     Part.Parent = Character
 
+    -- Weld
     local Weld = Instance.new("WeldConstraint")
     Weld.Part0 = Head
     Weld.Part1 = Part
@@ -95,27 +100,32 @@ local function CreateHitbox(Character)
     CurrentHitbox = Part
     CurrentTarget = Character
 
+    -- ปรับขนาดหัว
     Head.Transparency = 1
     Head.Size = HITBOX_SIZE
     Head.CanCollide = false
 
-    if Head:FindFirstChild("OriginalSize") then
-        Head.OriginalSize.Value = HITBOX_SIZE
+    local OriginalSize = Head:FindFirstChild("OriginalSize")
+
+    if OriginalSize and OriginalSize:IsA("Vector3Value") then
+        OriginalSize.Value = HITBOX_SIZE
     end
 
     -- ตรวจจับเลือด
     local Connection
-    Connection = Humanoid.HealthChanged:Connect(function(Health)
-        if Health > 0 then return end
 
-        Connection:Disconnect()
+    local function Cleanup()
+        if Connection then
+            Connection:Disconnect()
+            Connection = nil
+        end
+
         if Head and Head.Parent then
             Head.Size = Vector3.new(1, 1, 1)
             Head.Transparency = 0
             Head.CanCollide = false
 
-            local OriginalSize = Head:FindFirstChild("OriginalSize")
-            if OriginalSize then
+            if OriginalSize and OriginalSize.Parent then
                 OriginalSize.Value = Vector3.new(1, 1, 1)
             end
         end
@@ -124,23 +134,19 @@ local function CreateHitbox(Character)
             Part:Destroy()
         end
 
-        for _, Object in ipairs(Character:GetDescendants()) do
-            if Object:IsA("ParticleEmitter")
-            or Object:IsA("Trail")
-            or Object:IsA("Beam")
-            or Object:IsA("Fire")
-            or Object:IsA("Smoke")
-            or Object:IsA("Sparkles") then
-                Object:Destroy()
-            end
-        end
-
-        -- ล้างตัวแปร
         if CurrentTarget == Character then
             CurrentHitbox = nil
             CurrentTarget = nil
         end
+    end
+
+    Connection = Humanoid.HealthChanged:Connect(function(Health)
+        if Health <= 0 then
+            Cleanup()
+        end
     end)
+
+    Humanoid.Died:Once(Cleanup)
 end
 --==================================================
 -- REMOVE HITBOX
